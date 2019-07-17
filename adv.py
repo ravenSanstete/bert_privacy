@@ -145,7 +145,7 @@ def train_atk_classifier(key, size = 2000):
     # clf = SVC(kernel = 'linear', gamma = 'scale', verbose = True)
     # clf = KNeighborsClassifier(n_neighbors=1, p = 1)
     if(NONLINEAR):
-        clf = DANN(input_size = EMB_DIM, maxiter = 2000, verbose = True, name = key, batch_size = 128)
+        clf = DANN(input_size = EMB_DIM, maxiter = 6000, verbose = True, name = key, batch_size = 128)
         acc = clf.fit(X, Y, X_adapt = train_embs, X_valid = X_valid, Y_valid = Y_valid)
     
     # # train_embs = train_embs[np.random.choice(len(train_embs), 2000), :]

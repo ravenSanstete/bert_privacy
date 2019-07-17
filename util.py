@@ -6,9 +6,9 @@ import numpy as np
 from pathlib import Path
 
 
-def embedding(sents, name, arch):
+def embedding(sents, name, arch, cached = True):
     file_name = name + '.' + arch +'.npy'
-    if(Path(file_name).exists()):
+    if(cached and Path(file_name).exists()):
         return np.load(file_name)
     else:
         if(arch == 'bert'):
