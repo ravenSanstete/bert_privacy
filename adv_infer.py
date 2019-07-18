@@ -75,7 +75,7 @@ def get_batch(batch_size = 10, part = INFER_PART):
     y = [int(y)-1 for x, y in batch]
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
-    return z, y
+    return z, y, [x for x, y in batch]
 
 class Classifier(nn.Module):
     def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:1')):
@@ -95,6 +95,12 @@ class Classifier(nn.Module):
         outputs = self(x)
         _, preds = torch.max(outputs, 1)
         return preds.cpu().numpy()
+
+    def predict_topk(self, x, k = 5):
+        with torch.no_grad():
+            probs = self(x)
+            _, topk = torch.topk(probs, k)
+        return topk.cpu().numpy()
 
     def loss(self, x, y):
         x = torch.sigmoid(self.fc1(x))
@@ -120,7 +126,7 @@ class Classifier(nn.Module):
     
     
     
-if __name__ == '__main__':
+def main():
     print("INFER {}".format(INFER_PART))
     MAX_ITER = 10000
     CACHED = True
@@ -139,12 +145,12 @@ if __name__ == '__main__':
         print("Loading Model...")
         classifier.load_state_dict(torch.load(PATH))
     classifier = classifier.to(DEVICE)
-    test_x, test_y = get_batch(TEST_SIZE, INFER_PART)
+    test_x, test_y, _ = get_batch(TEST_SIZE, INFER_PART)
     test_x = test_x.to(DEVICE)
     optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
     running_loss = 0.0
     for i in tqdm(range(MAX_ITER)):
-        x, y = get_batch(BATCH_SIZE, INFER_PART)
+        x, y, _ = get_batch(BATCH_SIZE, INFER_PART)
         x, y = x.to(DEVICE), y.to(DEVICE)
         
         optimizer.zero_grad()
@@ -163,7 +169,39 @@ if __name__ == '__main__':
                 torch.save(classifier.state_dict(), PATH)
                 print("save model acc. {:.4f}".format(best_acc))
         
-    
+def padding(x):
+    if(len(x) == 1):
+        x = "0" + x
+    return x
 
+if __name__ == '__main__':
+    parts = ["year", "month", "date"]
+    PATH = "{}_cracker.cpt"
+    crackers = []
+    DEVICE = torch.device('cuda:0')
+    DEMO_SIZE = 4
+    K = 5
+    for p in parts:
+        print("Loading {} Cracker...".format(p))
+        classifier = Classifier(EMB_DIM, HIDDEN_DIM_TABLE[p], CLS_NUM_TABLE[p], DEVICE)
+        classifier.load_state_dict(torch.load(PATH.format(p)))
+        classifier.to(DEVICE)
+        crackers.append(classifier)
+    demo_x, _, demo_plain = get_batch(DEMO_SIZE, p)
+    demo_x = demo_x.to(DEVICE)
+    cracked = [cls.predict_topk(demo_x,k= K) for cls in crackers]
+    demo_x = demo_x.cpu().numpy()
+    for i, text in enumerate(demo_plain):
+        print("============================ SAMPLE {} ===========================".format(i+1))
+        print("Original ID: {}".format(text))
+        print("Embedding: {}".format(demo_x[i, :]))
+        year = [("19" + padding(str(x))) for x in cracked[0][i, :]]
+        print("Top-{} Year: {}".format(K, year))
+        print("Top-{} Month: {}".format(K, [padding(str(x)) for x in (cracked[1][i, :] + 1)]))
+        print("Top-{} Date: {}".format(K,  [padding(str(x)) for x in (cracked[2][i, :] + 1)]))
+        
+        
     
+        
+        
     

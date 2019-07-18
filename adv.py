@@ -70,6 +70,8 @@ if scenario == "daily":
     TRAIN_EMB_PATH = TARGET_EMB_PATH
 elif scenario == 'medical':
     TARGET_PATH = 'data/medical.test.txt'
+    TARGET_EMB_PATTERN =  'data/medical.test.x.{}.npy'
+    TRAIN_EMB_PATTERN = 'data/medical.train.x.{}.npy'
     TARGET_EMB_PATH = 'data/medical.test.x.{}.npy'.format(ARCH)
     TRAIN_PATH = 'data/medical.train.txt'
     TRAIN_EMB_PATH = 'data/medical.train.x.{}.npy'.format(ARCH)
@@ -123,7 +125,7 @@ def visualize(key = KEY):
 def train_atk_classifier(key, size = 2000):
     pca = None
     X, Y = [], []
-    for i in [0, 1]:
+    for i in [0, 1]: # while my training data is from gpt
         f = open(PATH.format(key, i), 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
         embs = embedding(sents, EMB_PATH.format(key, i), ARCH)
@@ -132,10 +134,11 @@ def train_atk_classifier(key, size = 2000):
         Y.extend([i]*embs.shape[0])
     X = np.concatenate(X, axis = 0)
     Y = np.array(Y)
-    train_embs = np.load(TRAIN_EMB_PATH)
+    
+    train_embs = np.load(TRAIN_EMB_PATTERN.format('gpt2'))
 
-    # load validation set
-    raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATH)
+    # load validation set (let us load gpt2)
+    raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATTERN.format('gpt2'))
     if(key != 'potato'):
         raw_valid, X_valid = balance(key, raw_valid, X_valid)
     Y_valid = np.array([(key in x) for x in raw_valid])
@@ -145,7 +148,7 @@ def train_atk_classifier(key, size = 2000):
     # clf = SVC(kernel = 'linear', gamma = 'scale', verbose = True)
     # clf = KNeighborsClassifier(n_neighbors=1, p = 1)
     if(NONLINEAR):
-        clf = DANN(input_size = EMB_DIM, maxiter = 6000, verbose = True, name = key, batch_size = 128)
+        clf = DANN(input_size = EMB_DIM, maxiter = 2000, verbose = True, name = key, batch_size = 128, lambda_adapt = 1.0)
         acc = clf.fit(X, Y, X_adapt = train_embs, X_valid = X_valid, Y_valid = Y_valid)
     
     # # train_embs = train_embs[np.random.choice(len(train_embs), 2000), :]
