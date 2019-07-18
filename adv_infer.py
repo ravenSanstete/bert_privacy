@@ -21,7 +21,7 @@ STATE_CODE = load_state_code()
 
 
 NUM = [str(i) for i in range(10)]
-INFER_PART = "date"
+INFER_PART = "month"
 
 HIDDEN_DIM_TABLE = {
     "month": 25,
@@ -46,7 +46,7 @@ CLS_NUM_TABLE = {
 
 EMB_DIM = EMB_DIM_TABLE[ARCH]
 
-def gen(part = "month"):
+def gen(part = "year"):
     part_year = random.choice(NUM) + random.choice(NUM)
     
     
@@ -70,7 +70,7 @@ def gen(part = "month"):
     return whole, side_channel
 
 def get_batch(batch_size = 10, part = INFER_PART):
-    batch = [gen() for i in range(batch_size)]
+    batch = [gen(INFER_PART) for i in range(batch_size)]
     z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
     y = [int(y)-1 for x, y in batch]
     z = torch.FloatTensor(z)
@@ -106,21 +106,33 @@ class Classifier(nn.Module):
         preds = self.predict(x)
         y = y.numpy()
         return np.mean(preds == y)
+
+    def evaluate_topk(self, x, y, k = 5):
+        y = y.numpy()
+        with torch.no_grad():
+            probs = self(x)
+            _, topk = torch.topk(probs, k)
+            topk = topk.cpu().numpy()
+            acc = [int(y[i] in topk[i, :]) for i in range(len(y))]
+        return np.mean(acc)
+        
+        
     
     
     
 if __name__ == '__main__':
     print("INFER {}".format(INFER_PART))
-    MAX_ITER = 40000
-    CACHED = False
+    MAX_ITER = 10000
+    CACHED = True
     PRINT_FREQ = 100
-    DEVICE = torch.device('cuda:1')
+    DEVICE = torch.device('cuda:0')
     TEST_SIZE = 1000
     HIDDEN_DIM = HIDDEN_DIM_TABLE[INFER_PART]
     CLS_NUM = CLS_NUM_TABLE[INFER_PART]
-    BATCH_SIZE = 128
-    PATH = "{}_cracker_tmp.cpt".format(INFER_PART)
+    BATCH_SIZE = 128 # 64
+    PATH = "{}_cracker.cpt".format(INFER_PART)
     best_acc = 0.0
+    K = 5
     
     classifier = Classifier(EMB_DIM, HIDDEN_DIM, CLS_NUM, DEVICE)
     if(CACHED):
@@ -134,6 +146,7 @@ if __name__ == '__main__':
     for i in tqdm(range(MAX_ITER)):
         x, y = get_batch(BATCH_SIZE, INFER_PART)
         x, y = x.to(DEVICE), y.to(DEVICE)
+        
         optimizer.zero_grad()
         loss = classifier.loss(x, y)
         loss.backward()
@@ -142,7 +155,8 @@ if __name__ == '__main__':
         
         if((i + 1) % PRINT_FREQ == 0):
             acc = classifier.evaluate(test_x, test_y)
-            print("Iteration {} Loss {:.4f} Acc.: {:.4f}".format(i+1, running_loss/PRINT_FREQ, acc))
+            topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
+            print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(i+1, running_loss/PRINT_FREQ, acc, K, topk_acc))
             running_loss = 0.0
             if(acc >= best_acc):
                 best_acc = acc
