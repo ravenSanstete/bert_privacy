@@ -440,7 +440,14 @@ if __name__ == '__main__':
     # prepare_dataset(DUMP_PATH)
     # for split in ["train", "test"]:
     #     obtain_bert_embeddings(DS_PATH, EMB_PATH, split)
-    main()
+    # main()
+    PATH = "data/medical.{}.txt"
+    name = "data/medical.{}.x"
+    for split in ["train", "test"]:
+        sents = list(open(PATH.format(split), 'r'))
+        types = ["bert", "gpt", "gpt2", "xl"]
+        for t in types:
+            embedding(sents, name.format(split), t, False)
     
     
 

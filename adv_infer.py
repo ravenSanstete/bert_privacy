@@ -21,7 +21,7 @@ STATE_CODE = load_state_code()
 
 
 NUM = [str(i) for i in range(10)]
-INFER_PART = "month"
+INFER_PART = "date"
 
 HIDDEN_DIM_TABLE = {
     "month": 25,
@@ -128,7 +128,7 @@ class Classifier(nn.Module):
     
 def main():
     print("INFER {}".format(INFER_PART))
-    MAX_ITER = 10000
+    MAX_ITER = 20000
     CACHED = True
     PRINT_FREQ = 100
     DEVICE = torch.device('cuda:0')
@@ -149,6 +149,9 @@ def main():
     test_x = test_x.to(DEVICE)
     optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
     running_loss = 0.0
+    acc = classifier.evaluate(test_x, test_y)
+    topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
+    print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
         x, y, _ = get_batch(BATCH_SIZE, INFER_PART)
         x, y = x.to(DEVICE), y.to(DEVICE)
@@ -175,6 +178,8 @@ def padding(x):
     return x
 
 if __name__ == '__main__':
+    main()
+    import sys; sys.exit()
     parts = ["year", "month", "date"]
     PATH = "{}_cracker.cpt"
     crackers = []

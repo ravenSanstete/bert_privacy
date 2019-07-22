@@ -30,7 +30,7 @@ parser = argparse.ArgumentParser(description='Privacy Testbed for Setence Embedd
 parser.add_argument('--arch', type = str, default = 'xl')
 parser.add_argument('--nonlinear', action='store_true')
 parser.add_argument('--truth', action = 'store_true')
-parser.add_argument('--prefix', type=str, default = 'part_fake_2')
+parser.add_argument('--prefix', type=str, default = 'part_fake_5')
 parser.add_argument('--pca', action = 'store_true')
 args = parser.parse_args()
 
@@ -42,6 +42,7 @@ EMB_PATH = PREFIX + '{}.{}'
 ARCH = args.arch
 MODEL = "linear"
 WORDS = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder", "potato"]
+# WORDS = ["hand", "arm"]
 # WORDS = ["potato"]
 
 # WORDS = WORDS[:-1]
@@ -54,7 +55,7 @@ VERBOSE = True
 GROUND_TRUTH = args.truth
 NONLINEAR = args.nonlinear
 IS_SEMI = True
-print("TESTING {}".format(ARCH))
+
 DO_PCA = args.pca
 if(GROUND_TRUTH):
     DO_PCA = False
@@ -70,27 +71,30 @@ if scenario == "daily":
     TRAIN_EMB_PATH = TARGET_EMB_PATH
 elif scenario == 'medical':
     TARGET_PATH = 'data/medical.test.txt'
-    TARGET_EMB_PATTERN =  'data/medical.test.x.{}.npy'
-    TRAIN_EMB_PATTERN = 'data/medical.train.x.{}.npy'
     TARGET_EMB_PATH = 'data/medical.test.x.{}.npy'.format(ARCH)
+    TARGET_EMB_PATTERN = 'data/medical.test.x.{}.npy'
+    TRAIN_EMB_PATTERN = 'data/medical.test.x.{}.npy'
+    # TARGET_PATH = 'data/mimic.test.txt' 
+    # TARGET_EMB_PATH = "data/mimic.test.{}.npy".format(ARCH)
+    # TARGET_EMB_PATTERN =  'data/mimic.test.{}.npy'
+    # TRAIN_EMB_PATTERN = 'data/mimic.test.{}.npy'
+    
+
     TRAIN_PATH = 'data/medical.train.txt'
     TRAIN_EMB_PATH = 'data/medical.train.x.{}.npy'.format(ARCH)
     
+EMB_DIM_TABLE = {
+    "bert": 1024,
+    "gpt": 768,
+    "gpt2": 768,
+    "xl": 1024
+    }
+
+EMB_DIM = EMB_DIM_TABLE[ARCH]
     
-    
 
 
-if(ARCH == 'bert'):
-    EMB_DIM = 1024
-elif(ARCH == 'gpt'):
-    EMB_DIM = 768
-elif(ARCH == 'gpt2'):
-    EMB_DIM = 768
-elif(ARCH == 'xl'):
-    EMB_DIM = 1024
 
-
-    
             
     
 
@@ -129,26 +133,29 @@ def train_atk_classifier(key, size = 2000):
         f = open(PATH.format(key, i), 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
         embs = embedding(sents, EMB_PATH.format(key, i), ARCH)
-        embs = embs[np.random.choice(len(embs), size, replace = False), :]
+        embs = embs[np.random.choice(len(embs), min(size, len(embs)), replace = False), :]
         X.append(embs)
         Y.extend([i]*embs.shape[0])
     X = np.concatenate(X, axis = 0)
     Y = np.array(Y)
     
-    train_embs = np.load(TRAIN_EMB_PATTERN.format('gpt2'))
+    train_embs = np.load(TRAIN_EMB_PATTERN.format(ARCH))
 
     # load validation set (let us load gpt2)
-    raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATTERN.format('gpt2'))
+    raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATTERN.format(ARCH))
     if(key != 'potato'):
         raw_valid, X_valid = balance(key, raw_valid, X_valid)
+    print(len(raw_valid))
     Y_valid = np.array([(key in x) for x in raw_valid])
     # learn a transfer
         
     # clf = linear_model.SGDClassifier(max_iter = 1000,  verbose = 0)
-    # clf = SVC(kernel = 'linear', gamma = 'scale', verbose = True)
+    clf = SVC(kernel = 'linear', gamma = 'scale')
+    acc = -1
+    clf.fit(X, Y)
     # clf = KNeighborsClassifier(n_neighbors=1, p = 1)
     if(NONLINEAR):
-        clf = DANN(input_size = EMB_DIM, maxiter = 2000, verbose = True, name = key, batch_size = 128, lambda_adapt = 1.0)
+        clf = DANN(input_size = EMB_DIM, maxiter = 4000, verbose = True, name = key, batch_size = 64, lambda_adapt = 1.0, hidden_layer_size = 25)
         acc = clf.fit(X, Y, X_adapt = train_embs, X_valid = X_valid, Y_valid = Y_valid)
     
     # # train_embs = train_embs[np.random.choice(len(train_embs), 2000), :]
@@ -174,7 +181,7 @@ def train_atk_classifier(key, size = 2000):
     
 
 # given 200 sentences 
-def train_ground_truth_classifier(key, size = 500):
+def train_ground_truth_classifier(key, size = 2000):
     X_0, X_1, Y= list(),list(),list()
     train_embs = np.load(TRAIN_EMB_PATH)
     c = 0
@@ -202,14 +209,8 @@ def train_ground_truth_classifier(key, size = 500):
     X, Y = np.array(X), np.array(Y)
     clf = SVC(kernel = 'linear', gamma = 'auto')
     
-    
-
-        
-    # clf = NonLinearClassifier(cls_num = 2)
     clf.fit(X, Y)
-    
-    # clf.to(torch.device('cpu')) 
-    # on current set
+
     if(VERBOSE):
         print("TRAIN INFERENCE MODEL FROM GROUND TRUTH (# = {})".format(len(X)))
         correct = np.sum((clf.predict(X) == Y))
@@ -258,7 +259,15 @@ def evaluate(clf, key, use_dp = False, dp_func = None, is_balanced = IS_BALANCED
 
 def main(key = KEY, use_dp = False, dp_func = None, is_balanced = IS_BALANCED):
     # clf = train_atk_classifier(KEY)
-    clf, pca, acc = train_ground_truth_classifier(key) if GROUND_TRUTH else train_atk_classifier(key)
+    if(not GROUND_TRUTH):
+        print("TEST TRANSFER")
+        clf, pca, acc = train_atk_classifier(key)
+        if(acc < 0):
+            acc = evaluate(clf, key, use_dp, dp_func, is_balanced)
+    else:
+        print("TEST SIMILAR")
+        clf, pca = train_ground_truth_classifier(key)
+        acc = evaluate(clf, key, use_dp, dp_func, is_balanced)
     return acc #evaluate(clf, key, use_dp, dp_func, is_balanced, pca)
 
 
@@ -285,6 +294,7 @@ def size_experiments():
 
 
 def attacker_utility(use_dp, dp_func, is_balanced = IS_BALANCED):
+    print("Whether Balanced: {}".format(is_balanced))
     acc = []
     for i, k in enumerate(WORDS):
         acc.append(main(k, use_dp, dp_func, is_balanced if i < 10 else False))
@@ -396,6 +406,11 @@ if __name__ == '__main__':
     # print(delta)
     # user_utility(False, None)
     attacker_utility(False, None, True)
+    # GROUND_TRUTH = False
+    # for ARCH in ["bert", "gpt", "gpt2", "xl"]:
+    #    EMB_DIM = EMB_DIM_TABLE[ARCH]
+    #    print("TESTING {}".format(ARCH))
+    #    attacker_utility(False, None, True)
     # attacker_utility(False, None, True)
     # attack_test_with_laplace_dp()
     # print(attacker_utility(False, None))

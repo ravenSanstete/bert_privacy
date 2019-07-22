@@ -43,20 +43,26 @@ class DANN(nn.Module):
         self.batch_size = batch_size
         self.rev_grad = RevGrad()
         self.use_cuda = use_cuda
-        self.criterion = nn.CrossEntropyLoss()
+        self.criterion = nn.CrossEntropyLoss(reduction = 'mean')
         # self.optimizer = optim.SGD(self.parameters(), lr=0.01)
-        self.optimizer = optim.Adam(self.parameters(), lr = 0.005)
+        self.optimizer = optim.Adam(self.parameters(), lr = 0.001)
         self.print_freq = 100
         self.name = name
+        self.bn = nn.BatchNorm1d(self.input_size)
+
+    def feature(self, x):
+        x = self.feature_extractor(self.bn(x))
+        return x
         
+    
 
     def forward(self, x):
-        x = torch.sigmoid(self.feature_extractor(x))
+        x = torch.sigmoid(self.feature(x))
         x = F.softmax(self.classifier(x), dim = 0)
         return x
 
     def _hidden_representation(self, x):
-        x = torch.sigmoid(self.feature_extractor(x))
+        x = torch.sigmoid(self.feature(x))
         return x
 
     def predict(self, x):
@@ -76,13 +82,14 @@ class DANN(nn.Module):
         return predicted.cpu().numpy()
 
     def L_y(self, x, y):
-        x = torch.sigmoid(self.feature_extractor(x))
+        x = torch.sigmoid(self.feature(x))
         x = self.classifier(x)
         return self.criterion(x, y)
 
     def L_d(self, x, domain_y):
-        x = self.rev_grad(torch.sigmoid(self.feature_extractor(x)))
+        x = self.rev_grad(torch.sigmoid(self.feature(x)))
         x = self.domain_classifier(x)
+
         return self.criterion(x, domain_y)
 
     def validate(self, x, y):
@@ -152,13 +159,14 @@ class DANN(nn.Module):
                 running_ly += l_y.item()
             if((i + 1) % self.print_freq == 0):
                 print('Iter {}/{} loss: {:.5f} Ly: {:.5f} Ld: {:5f}'.format(i+1, self.maxiter, running_loss / self.print_freq, running_ly/self.print_freq, running_ld/self.print_freq))
+                print("")
                 running_loss = 0.0
                 running_ld = 0.0
                 running_ly = 0.0
                 target_acc  = self.validate(X_valid, Y_valid)
-                print("Source Domain Acc.: {:.4f}".format(self.validate(X, Y_cpu)))
-                print("Target Domain Acc.: {:.4f}".format(target_acc))
-                print("Domain Clf Acc.: {:.4f}".format(self.validate_domain(X, X_adapt, )))
+                source_acc = self.validate(X, Y_cpu)
+                domain_acc = self.validate_domain(X, X_adapt)
+                print("Source Acc.: {:.4f} Target Acc.: {:.4f} Sum: {:.4f} Domain: {:.4f}".format(source_acc, target_acc, source_acc + target_acc, domain_acc))
                 best_acc = max(best_acc, target_acc)
         print("INFER {} ACC. {:.4f}".format(self.name, best_acc))
         return best_acc

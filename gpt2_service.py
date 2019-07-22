@@ -1,7 +1,7 @@
 # this file implements the gpt2 as a service
 # implement the gpt service in the same interface as the bert case
 import torch
-from pytorch_pretrained_bert import GPT2Tokenizer, GPT2Model, GPT2LMHeadModel
+from pytorch_transformers import GPT2Tokenizer, GPT2Model, GPT2LMHeadModel
 
 from tqdm import tqdm
 import numpy as np
@@ -36,17 +36,13 @@ class GPT2Client(object):
         # query the
         cpu = torch.device('cpu')
         out = []
-        clear_cache = 32
         with torch.no_grad():
             counter = 0
             for batch in tqdm(batches):
                 batch = batch.to(self.device)
-                hidden_states, _ = self.model(batch)
+                hidden_states = self.model(batch)[0]
                 out.append(hidden_states[:, -1, :].to(cpu).numpy())
                 counter += 1
-                # if(counter >= clear_cache):
-                #     counter =  0
-                #     torch.cuda.empty_cache()
         return np.concatenate(out, axis = 0)
             
             

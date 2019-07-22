@@ -1,7 +1,7 @@
 # this file implements the gpt2 as a service
 # implement the gpt service in the same interface as the bert case
 import torch
-from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
+from pytorch_transformers import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
 
 from tqdm import tqdm
 import numpy as np
@@ -42,11 +42,10 @@ class XLClient(object):
             counter = 0
             for batch in tqdm(batches):
                 batch = batch.to(self.device)
-                hidden_states, _ = self.model(batch)
-                hidden_states = hidden_states[:,-1,:] # how to use the embedding: https://github.com/zihangdai/xlnet/blob/master/modeling.py @func: summarize_sequences
+                hidden_states = self.model(batch)[0] # how to use the embedding: https://github.com/zihangdai/xlnet/blob/master/modeling.py @func: summarize_sequences
                 # print(mems.size())
                 # print(hidden_states[-1].size())
-                out.append(hidden_states.to(cpu).numpy())
+                out.append(hidden_states[:,-1,:].to(cpu).numpy())
                 counter += 1
                 # if(counter >= clear_cache):
                 #     counter =  0
