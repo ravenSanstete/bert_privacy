@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch.nn import GRU, Embedding, Linear
 import random
 from tqdm import tqdm
+from pathlib import Path
 
 def explate(seq):
     out = ""
@@ -26,7 +27,15 @@ def extract_genomes(path):
         line = line.split(' ')
         out.append(explate(line[-1][:-1]))
     return out
-
+## extraction 
+def _extract_genomes(path):
+    f = open(path, 'r')
+    out = []
+    for i in range(4): next(f)
+    for line in f:
+        line = line.split(' ')
+        out.append(line[-1][:-1])
+    return out    
 def prepare_raw_datasets():
     TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
     F_PATH_PAT = "data/acceptor_hs3d/IE_false.seq.00{}"
@@ -93,7 +102,7 @@ REVERSE_TABLE  = ["A", "G", "C", "T"]
 EMB_DIM_TABLE = {
     "bert": 1024
     }
-INTERVAL_LEN = 4
+INTERVAL_LEN = 1
 
 TOTAL_LEN = 140
 ARCH = 'bert'
@@ -111,8 +120,6 @@ def id2seq(val):
     return "".join([REVERSE_TABLE[int(c)] for c in s])
 
 
-
-
 def gen(target = 0):
     # @param target: which specifies the inverval to infer (i.e. [target, target + inverval_LEN))
     key = [random.choice(REVERSE_TABLE) for i in range(target, target+INTERVAL_LEN)]
@@ -126,6 +133,17 @@ def get_batch(target = 0, batch_size = 10):
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
     return z, y, [x for x, y in batch]
+
+
+def get_batch_ground_truth(target = 0, batch_size = 10):
+    embedding_path = "data/acceptor_hs3d/IE.{}"
+    TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
+    z = embedding(None, embedding_path.format(1), ARCH)[:batch_size, :]
+    y = _extract_genomes(TRUE_PATH)[:batch_size]
+    y = [seq2id(x[target:target+INTERVAL_LEN]) for x in y]
+    z = torch.FloatTensor(z)
+    y = torch.LongTensor(y)
+    return z, y, None
     
 class Classifier(nn.Module):
     def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:1')):
@@ -174,28 +192,28 @@ class Classifier(nn.Module):
         return np.mean(acc)
 
 
-def train_attacker():
-    TARGET = 0
+def train_attacker(target = 0):
+    TARGET = target
     CLS_NUM = 4 ** INTERVAL_LEN
     print("INFER GENE SUBSEQ [{}, {}) CLS NUMBER {}".format(TARGET, TARGET + INTERVAL_LEN, CLS_NUM))
-    MAX_ITER = 20000
+    MAX_ITER = 2000
     CACHED = True
     PRINT_FREQ = 100
-    DEVICE = torch.device('cuda:0')
+    DEVICE = torch.device('cuda:1')
     TEST_SIZE = 1000
-    HIDDEN_DIM = 500
-    BATCH_SIZE = 512 # 128 #64
+    HIDDEN_DIM = 25
+    BATCH_SIZE = 64 # 128 #64
 
     EMB_DIM = EMB_DIM_TABLE[ARCH]
     PATH = "{}-{}_cracker.cpt".format(TARGET, TARGET + INTERVAL_LEN)
     best_acc = 0.0
-    K = 5
+    K = 2
     classifier = Classifier(EMB_DIM, HIDDEN_DIM, CLS_NUM, DEVICE)
-    if(CACHED):
+    if(CACHED and Path(PATH).exists()):
         print("Loading Model...")
         classifier.load_state_dict(torch.load(PATH))
     classifier = classifier.to(DEVICE)
-    test_x, test_y, _ = get_batch(TARGET, TEST_SIZE)
+    test_x, test_y, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
     test_x = test_x.to(DEVICE)
 
     optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
@@ -222,11 +240,14 @@ def train_attacker():
                 best_acc = acc
                 torch.save(classifier.state_dict(), PATH)
                 print("save model acc. {:.4f}".format(best_acc))
+    return best_acc
     
 if __name__ == '__main__':
     # prepare_raw_datasets()
     # construct_datasets("bert")
     # predict()
-    train_attacker()
-
+    acc = 0.995
+    for target in range(1, 20):
+        acc *= train_attacker(target)
+    print("Restore 20-length gene Acc.: {}".format(acc))
 
