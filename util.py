@@ -23,13 +23,8 @@ def embedding(sents, name, arch, cached = True):
         embs = bc.encode(sents)
         np.save(file_name, embs)
         return embs
+
 if __name__ == '__main__':
-    f = open('/DATACENTER/data/pxd/bert_privacy/data/part_fake_5/spine.0.txt')
-    file_name ='/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/train.{}.1.'.format('spine') + 'gpt' + '.npy'
-    sents = [x[:-1] for x in f if x[:-1] != '']
-    print(len(sents))
-    # bc = BertClient()
-    bc = GPTClient()
-    embs = bc.encode(sents)
-    np.save(file_name, embs)
+    bc = BertClient()
+    print('finish')
 

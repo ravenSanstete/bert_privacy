@@ -32,17 +32,11 @@ TARGET_EMB_PATH = DS_PATH + '.' + ARCH + '.npy'
 
 
 def main():
-	'''
-	x = torch.randn(3,2)
-	x = x.cuda()
-	y = torch.randn(2,6).cuda()
-
-	print(torch.mm(x,y))
-	'''
-	print(TARGET_EMB_PATH)
+    f = open('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/train.{}.{}'.format('Hong Kong','1') + '.txt', 'r')
+    target_f = [x[:-1] for x in f if x[:-1] != '']
+    print(len(target_f))
 
 
 if __name__ == "__main__":
-
-	main()
+    main()
 
