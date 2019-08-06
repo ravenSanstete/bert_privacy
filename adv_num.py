@@ -13,10 +13,10 @@ from util import embedding
 
 from Levenshtein import distance
 from tqdm import tqdm
-VOCAB = [str(i) for i in range(0, 10)]
+
 ARCH = "bert"
 
-BOS_token = 1
+BOS_token = 0
 EMB_DIM_TABLE = {
     "bert": 1024,
     "gpt": 768,
@@ -25,26 +25,45 @@ EMB_DIM_TABLE = {
     }
 
 EMB_DIM = EMB_DIM_TABLE[ARCH]
-PAD_token = len(VOCAB)
+# PAD_token = len(VOCAB)
+
 BATCH_SIZE = 1024
 
-def gen(length):
-    return "".join([str(BOS_token)] + [random.choice(VOCAB) for i in range(length-1)])
+TABLE = {
+    "A": 0,
+    "G": 1,
+    "C": 2,
+    "T": 3
+}
 
-def generate_ids(num, length = 11):
-    return [gen(length) for i in range(num)]
+VOCAB =  ["A", "G", "C", "T"]
 
-def get_batch(batch_size = 10, length = 11):
-    y = generate_ids(batch_size, length)
-    x = embedding(y, "tmp", ARCH, cached = False)
-    y = [[int(p) for p in s] for s in y] # get tokens
-    x = torch.FloatTensor(x)
-    y = torch.LongTensor(y)
-    return x, y
+REVERSE_TABLE = VOCAB
+INTERVAL_LEN = 6
+
+def text2seq(text):
+    return [TABLE[c] for c in text]
+    
+def seq2text(seq):
+    return [REVERSE_TABLE[i] for i in seq]
+
+def gen(target = 0):
+    # @param target: which specifies the inverval to infer (i.e. [target, target + inverval_LEN
+    return  "".join([random.choice(REVERSE_TABLE) for i in range(target+INTERVAL_LEN, INTERVAL_LEN)]), None
+
+
+def get_batch(target = 0, batch_size = 10):
+    batch = [gen(target) for i in range(batch_size)]
+    z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
+    # y = [int(y) for x, y in batch]
+    z = torch.FloatTensor(z)
+    # y = torch.LongTensor(y)
+    return z, [text2seq(x) for x, y in batch]
+
 
 # from token sequence to plain text
 def recover(y):
-    y = [[str(x) for x in s] for s in y]
+    y = [seq2text(s) for s in y]
     y = ["".join(s) for s in y]
     return y
     
@@ -54,7 +73,7 @@ def pos_distance(x, y):
 
 
 class Decoder(nn.Module):
-    def __init__(self, embedding_size, hidden_size, output_size, num_layers = 1, dropout = 0.1, length = 11, device = torch.device('cuda:1')):
+    def __init__(self, embedding_size, hidden_size, output_size, num_layers = 1, dropout = 0.1, length = 20, device = torch.device('cuda:1')):
         super(Decoder, self).__init__()
         self.embedding = Embedding(output_size,
                              embedding_dim =  embedding_size)
@@ -110,7 +129,7 @@ class Decoder(nn.Module):
             current_token = torch.argmax(out, dim = 2)
             current_token = current_token.squeeze()  
         tokens = np.concatenate(tokens, axis = 1)
-        tokens = [[str(p) for p in s] for s in tokens]
+        tokens = [seq2text(s) for s in tokens]
         tokens = ["".join(s) for s in tokens]
         return tokens
     
@@ -131,24 +150,25 @@ class Decoder(nn.Module):
 
 if __name__ == '__main__':
     MAX_ITER = 10000
-    CACHED = True
+    CACHED = False
     PRINT_FREQ = 10
     DEVICE = torch.device('cuda:1')
-    TEST_SIZE = 1000
-    LENGTH = 6
+    TEST_SIZE = 20
     PATH =  "id_cracker.cpt"
+
+    TARGET = 0
     
-    decoder = Decoder(EMB_DIM, EMB_DIM, len(VOCAB), device = DEVICE, length = LENGTH)
+    decoder = Decoder(EMB_DIM, EMB_DIM, len(VOCAB), device = DEVICE, length = INTERVAL_LEN)
     if(CACHED):
         print("Loading Model...")
         decoder.load_state_dict(torch.load(PATH))
     decoder.to(DEVICE)
-    test_x, test_y = get_batch(TEST_SIZE, LENGTH)
+    test_x, test_y = get_batch(TARGET, TEST_SIZE)
     test_x, test_y = test_x.to(DEVICE), test_y.to(DEVICE)
     optimizer = optim.Adam(decoder.parameters(), lr = 0.001)
     running_loss = 0.0
     for i in tqdm(range(MAX_ITER)):
-        x, y = get_batch(BATCH_SIZE, LENGTH)
+        x, y = get_batch(TARGET, BATCH_SIZE)
         x, y = x.to(DEVICE), y.to(DEVICE)
         optimizer.zero_grad()
         loss = decoder.loss(x, y)

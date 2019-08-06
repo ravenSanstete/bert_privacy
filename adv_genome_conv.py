@@ -12,14 +12,6 @@ from torch.nn import GRU, Embedding, Linear
 import random
 from tqdm import tqdm
 from pathlib import Path
-from sklearn.ensemble import RandomForestClassifier
-import argparse
-
-
-parser = argparse.ArgumentParser(description='Genome Attack')
-parser.add_argument("-p", type=int, default= 0, help = 'the position to attack')
-parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
-ARGS = parser.parse_args()
 
 def explate(seq):
     out = ""
@@ -33,7 +25,7 @@ def extract_genomes(path):
     for i in range(4): next(f)
     for line in f:
         line = line.split(' ')
-        out.append(line[-1][:100])
+        out.append(explate(line[-1][:-1]))
     return out
 ## extraction 
 def _extract_genomes(path):
@@ -43,8 +35,7 @@ def _extract_genomes(path):
     for line in f:
         line = line.split(' ')
         out.append(line[-1][:-1])
-    return out
-
+    return out    
 def prepare_raw_datasets():
     TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
     F_PATH_PAT = "data/acceptor_hs3d/IE_false.seq.00{}"
@@ -56,8 +47,6 @@ def prepare_raw_datasets():
     false_akpt = np.random.choice(false_akpt, size = 10 * len(true_akpt), replace = False).tolist()
     print("# of Positive Samples: {}".format(len(true_akpt)))
     print("# of Negative Samples: {}".format(len(false_akpt)))
-    print(len(true_akpt[0]))
-    print(len(false_akpt[0]))
     return true_akpt, false_akpt
 
 def train_test_split(embs, ratio = 0.9):
@@ -113,9 +102,9 @@ REVERSE_TABLE  = ["A", "G", "C", "T"]
 EMB_DIM_TABLE = {
     "bert": 1024
     }
-INTERVAL_LEN = 3
+INTERVAL_LEN = 1
 
-TOTAL_LEN = 20
+TOTAL_LEN = 140
 ARCH = 'bert'
 
 def seq2id(s):
@@ -136,13 +125,14 @@ def gen(target = 0):
     key = [random.choice(REVERSE_TABLE) for i in range(target, target+INTERVAL_LEN)]
     part_A = [random.choice(REVERSE_TABLE) for i in range(0, target)]
     part_B = [random.choice(REVERSE_TABLE) for i in range(target+INTERVAL_LEN, TOTAL_LEN)]
-    return "".join(part_A + key + part_B), seq2id("".join(key))
-
+    return " ".join(part_A + key + part_B), seq2id("".join(key)) 
 def get_batch(target = 0, batch_size = 10):
     batch = [gen(target) for i in range(batch_size)]
     z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
+    z = np.expand_dims(np.expand_dims(z, axis = 2).reshape((batch_size, 32, 32)), axis = 1)
     y = [int(y) for x, y in batch]
     z = torch.FloatTensor(z)
+    # print(z.size())
     y = torch.LongTensor(y)
     return z, y, [x for x, y in batch]
 
@@ -151,28 +141,33 @@ def get_batch_ground_truth(target = 0, batch_size = 10):
     embedding_path = "data/acceptor_hs3d/IE.{}"
     TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
     z = embedding(None, embedding_path.format(1), ARCH)[:batch_size, :]
+    z = np.expand_dims(np.expand_dims(z, axis = 2).reshape((batch_size, 32, 32)), axis = 1)
     y = _extract_genomes(TRUE_PATH)[:batch_size]
     y = [seq2id(x[target:target+INTERVAL_LEN]) for x in y]
     z = torch.FloatTensor(z)
+    # print(z.size())
     y = torch.LongTensor(y)
     return z, y, None
-    
+
+
+# replace the classifier as a conv-net
 class Classifier(nn.Module):
     def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:1')):
         super(Classifier, self).__init__()
-        self.fc1 = Linear(embedding_size, hidden_size)
-        hidden_size_2 = 100
-        self.fc2 = Linear(hidden_size, hidden_size_2)
-        self.fc3 = Linear(hidden_size_2, cls_num)
-        self.device = device
+        self.conv1 = nn.Conv2d(1, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, cls_num)
         self.criterion = nn.CrossEntropyLoss()
-        print(cls_num)
-        
 
     def forward(self, x):
-        x = torch.sigmoid(self.fc1(x))
-        x = torch.sigmoid(self.fc2(x))
-        x = self.fc3(x)
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         return x
     
     def predict(self, x):
@@ -192,11 +187,8 @@ class Classifier(nn.Module):
         return _loss
 
     def evaluate(self, x, y):
-        with torch.no_grad():
-            preds = self.predict(x)
-            y = y.numpy()
-            print(np.histogram(y))
-            print(np.histogram(preds))
+        preds = self.predict(x)
+        y = y.numpy()
         return np.mean(preds == y)
 
     def evaluate_topk(self, x, y, k = 5):
@@ -214,15 +206,15 @@ def train_attacker(target = 0):
     CLS_NUM = 4 ** INTERVAL_LEN
     print("INFER GENE SUBSEQ [{}, {}) CLS NUMBER {}".format(TARGET, TARGET + INTERVAL_LEN, CLS_NUM))
     MAX_ITER = 10000
-    CACHED = ARGS.c
+    CACHED = False
     PRINT_FREQ = 100
     DEVICE = torch.device('cuda:1')
     TEST_SIZE = 1000
-    HIDDEN_DIM = 400
-    BATCH_SIZE = 256 # 128 #64
-    TRUTH = False
+    HIDDEN_DIM = 25
+    BATCH_SIZE = 64 # 128 #64
+
     EMB_DIM = EMB_DIM_TABLE[ARCH]
-    PATH = "checkpoints/{}-{}_cracker_tmp_len_20_hidden_400_100.cpt".format(TARGET, TARGET + INTERVAL_LEN)
+    PATH = "{}-{}_cracker.cpt".format(TARGET, TARGET + INTERVAL_LEN)
     best_acc = 0.0
     K = 2
     classifier = Classifier(EMB_DIM, HIDDEN_DIM, CLS_NUM, DEVICE)
@@ -230,14 +222,9 @@ def train_attacker(target = 0):
         print("Loading Model...")
         classifier.load_state_dict(torch.load(PATH))
     classifier = classifier.to(DEVICE)
-
-    if(TRUTH):
-        test_x, test_y, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
-    else:
-        test_x, test_y, _ = get_batch(TARGET, TEST_SIZE)
-
+    test_x, test_y, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
     test_x = test_x.to(DEVICE)
-    optimizer = optim.SGD(classifier.parameters(), lr = 0.05)
+    # optimizer = optim.SGD(classifier.parameters(), lr = 0.05)
     optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
     running_loss = 0.0
     
@@ -245,7 +232,7 @@ def train_attacker(target = 0):
     topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
     print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
-        x, y, raw = get_batch(TARGET, BATCH_SIZE)
+        x, y, _ = get_batch(TARGET, BATCH_SIZE)
         x, y = x.to(DEVICE), y.to(DEVICE)
         optimizer.zero_grad()
         loss = classifier.loss(x, y)
@@ -258,39 +245,18 @@ def train_attacker(target = 0):
             topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
             print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(i+1, running_loss/PRINT_FREQ, acc, K, topk_acc))
             running_loss = 0.0
-            # print(raw[:4])
-            # print(y[:4])
             if(acc >= best_acc):
                 best_acc = acc
                 torch.save(classifier.state_dict(), PATH)
                 print("save model acc. {:.4f}".format(best_acc))
     return best_acc
-
-
-def train_random_forest(target = 0):
-    train_sample_num = 10000
-    test_sample_num = 1000
-    test_x, test_y, _ = get_batch_ground_truth(target, test_sample_num)
-    x, y, _ = get_batch(target, train_sample_num)
-    x, y = x.numpy(), y.numpy()
-    test_x, test_y = test_x.numpy(), test_y.numpy()
-    clf = RandomForestClassifier(n_estimators = 100)
-    # clf = SVC()
-    clf.fit(x, y)
-    preds = clf.predict(test_x)
-    acc = np.mean(preds == test_y)
-    print("Target {} -- Top-1 Acc. {:.4f}".format(target, acc))
-    return acc
-
+    
 if __name__ == '__main__':
     # prepare_raw_datasets()
     # construct_datasets("bert")
     # predict()
-    # import sys; sys.exit()
-    # acc = 1.0
-    # for target in range(5, 10):
-    target =ARGS.p
-    acc = train_attacker(target)
-        # acc *= train_random_forest(target)
+    acc = 0.995
+    for target in range(2, 20):
+        acc *= train_attacker(target)
     print("Restore 20-length gene Acc.: {}".format(acc))
 

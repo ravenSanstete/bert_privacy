@@ -6,7 +6,7 @@ import numpy as np
 from pathlib import Path
 
 
-def embedding(sents, name, arch, cached = True):
+def embedding(sents, name, arch, cached = True, is_tokenized = False):
     file_name = name + '.' + arch +'.npy'
     if(cached and Path(file_name).exists()):
         return np.load(file_name)
@@ -19,6 +19,9 @@ def embedding(sents, name, arch, cached = True):
             bc = GPT2Client()
         elif(arch == 'xl'):
             bc = XLClient(chunck_size = 16)
-        embs = bc.encode(sents)
+        if(arch == 'bert'):
+            embs = bc.encode(sents, is_tokenized = is_tokenized)
+        else:
+            embs = bc.encode(sents)
         np.save(file_name, embs)
         return embs
