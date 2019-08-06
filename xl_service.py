@@ -1,7 +1,7 @@
 # this file implements the gpt2 as a service
 # implement the gpt service in the same interface as the bert case
 import torch
-from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
+from pytorch_transformers import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
 
 from tqdm import tqdm
 import numpy as np

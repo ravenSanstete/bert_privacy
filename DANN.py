@@ -151,14 +151,16 @@ class DANN(nn.Module):
                 running_ld += l_d.item()
                 running_ly += l_y.item()
             if((i + 1) % self.print_freq == 0):
-                print('Iter {}/{} loss: {:.5f} Ly: {:.5f} Ld: {:5f}'.format(i+1, self.maxiter, running_loss / self.print_freq, running_ly/self.print_freq, running_ld/self.print_freq))
+                if self.verbose:
+                    print('Iter {}/{} loss: {:.5f} Ly: {:.5f} Ld: {:5f}'.format(i+1, self.maxiter, running_loss / self.print_freq, running_ly/self.print_freq, running_ld/self.print_freq))
                 running_loss = 0.0
                 running_ld = 0.0
                 running_ly = 0.0
                 target_acc  = self.validate(X_valid, Y_valid)
-                print("Source Domain Acc.: {:.4f}".format(self.validate(X, Y_cpu)))
-                print("Target Domain Acc.: {:.4f}".format(target_acc))
-                print("Domain Clf Acc.: {:.4f}".format(self.validate_domain(X, X_adapt, )))
+                if self.verbose:
+                    print("Source Domain Acc.: {:.4f}".format(self.validate(X, Y_cpu)))
+                    print("Target Domain Acc.: {:.4f}".format(target_acc))
+                    print("Domain Clf Acc.: {:.4f}".format(self.validate_domain(X, X_adapt, )))
                 best_acc = max(best_acc, target_acc)
         print("INFER {} ACC. {:.4f}".format(self.name, best_acc))
         return best_acc

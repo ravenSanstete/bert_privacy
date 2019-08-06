@@ -1,6 +1,6 @@
 # implement the gpt service in the same interface as the bert case
 import torch
-from pytorch_pretrained_bert import OpenAIGPTTokenizer, OpenAIGPTModel, OpenAIGPTLMHeadModel
+from pytorch_transformers import OpenAIGPTTokenizer, OpenAIGPTModel, OpenAIGPTLMHeadModel
 from tqdm import tqdm
 import numpy as np
 from tools import zero_padding
@@ -54,7 +54,7 @@ class GPTClient(object):
             
         
 if __name__ == '__main__':
-    test_sents = list(open('data/medical.test.txt', 'r'))
+    test_sents = list(open('/DATACENTER/data/pxd/bert_privacy/data/medical.test.txt', 'r'))
     client = GPTClient(chunck_size = 64)
     embs = client.encode(test_sents)
     print(embs.shape)

@@ -16,11 +16,12 @@ from numpy.linalg import eig
 import ot
 
 
-PATH = "/home/mlsnrs/data/pxd/bert_privacy/data/Medicare_Provider_Util_Payment_PUF_CY2016.txt"
-DUMP_PATH = "data/desc_type.txt"
-CLS_PATH = "data/class.txt"
-DS_PATH = "data/medical.{}.txt"
-EMB_PATH = "data/medical.{}.{}.{}.npy"
+# PATH = "/home/mlsnrs/data/pxd/bert_privacy/data/Medicare_Provider_Util_Payment_PUF_CY2016.txt"
+PATH = "/DATACENTER/data/pxd/bert_privacy/data/Medicare_Provider_Util_Payment_PUF_CY2016.txt"
+DUMP_PATH = "/DATACENTER/data/pxd/bert_privacy/data/desc_type.txt"
+CLS_PATH = "/DATACENTER/data/pxd/bert_privacy/data/class.txt"
+DS_PATH = "/DATACENTER/data/pxd/bert_privacy/data/medical.{}.txt"
+EMB_PATH = "/DATACENTER/data/pxd/bert_privacy/data/medical.{}.{}.{}.npy"
 
 
 ORIGINAL_TOTAL =  9714896
@@ -33,7 +34,7 @@ MODEL = "linear"
 CLS_NUM = 10
 PRINT_FREQ = 500
 USE_CUDA = True
-ARCH = 'gpt'
+ARCH = 'bert'
 
 EPOCH_NUM = 100
 
@@ -58,8 +59,7 @@ def transfer(vec1,vec2):#seq_num * dim_h
     vec2=vec2
 
     
-    vec1=np.transpose(vec1)#dim_h * seq_num 
-
+    vec1=np.transpose(vec1)#dim_h * seq_num
     n = vec1.shape[1]
     covar1=np.dot(vec1,vec1.T)/(n-1)
     vec2=np.transpose(vec2)
@@ -85,7 +85,7 @@ def transfer(vec1,vec2):#seq_num * dim_h
     
     #print(evals2)
     # evals2=np.diag(np.power(np.abs(evals2),1/2))
-    fc = evecs1 @ np.diag(eig_s) @ evecs1.T # dim_h * seq_num
+    fc = evecs1 @ np.diag(eig_s) @ evecs1.T
     # print(fc.shape)
     fcs = evecs2 @ np.diag(eig_t) @ evecs2.T @ fc # dim_h * seq_num
     
@@ -288,8 +288,8 @@ class NonLinearClassifier(nn.Module):
         transport_map = None
         transport_bias = None
         transport_map_exist = False
-        TARGET_PATH = 'data/medical.test.txt'
-        TARGET_EMB_PATH = 'data/medical.test.x.{}.npy'.format(self.arch)
+        TARGET_PATH = '/DATACENTER/data/pxd/bert_privacy/data/medical.test.txt'
+        TARGET_EMB_PATH = '/DATACENTER/data/pxd/bert_privacy/data/medical.test.x.{}.npy'.format(self.arch)
         target_acc = []
         source_acc = []
         if(not self.key == "potato"):
@@ -360,7 +360,7 @@ class NonLinearClassifier(nn.Module):
                         best_acc = exp_correct
                     target_acc.append(exp_correct)
         global total_acc
-        total_acc += best_acc / 10.0
+        total_acc += best_acc
         print("Infer {} Best acc. {:.4f}".format(self.key, best_acc))
         # print(source_acc)
         # print(target_acc)
@@ -379,8 +379,8 @@ MODEL_MAP = {
 
 
 def main():
-    embedding(list(open(DS_PATH.format('train'))), "data/medical.train.x", ARCH)
-    embedding(list(open(DS_PATH.format('test'))), "data/medical.test.x", ARCH)
+    embedding(list(open(DS_PATH.format('train'))), "/DATACENTER/data/pxd/bert_privacy/data/medical.train.x", ARCH)
+    embedding(list(open(DS_PATH.format('test'))), "/DATACENTER/data/pxd/bert_privacy/data/medical.test.x", ARCH)
     train_loader = get_dataloader(EMB_PATH, "train", ARCH, BATCH_SIZE)
     test_loader = get_dataloader(EMB_PATH, "test", ARCH, BATCH_SIZE)
 
@@ -419,7 +419,7 @@ def main():
         acc = evaluate(test_loader, linear_classifier)
              # save the model
         torch.save(linear_classifier.state_dict(), MODEL_SAVE_PATH.format(ARCH, MODEL))
-        print("After Epoch {}, Test Accuracy {:.3f}%".format(epoch + 1, acc))    
+        print("After Epoch {}, {} Test Accuracy {:.3f}% ".format(epoch + 1, ARCH, acc))
     print('Finished Training. Saving Model...')
     torch.save(linear_classifier.state_dict(), MODEL_SAVE_PATH.format(ARCH, MODEL))
     
