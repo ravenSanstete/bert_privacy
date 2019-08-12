@@ -1,5 +1,6 @@
 import random
 import os
+import csv
 import numpy as np
 import torch
 import torch.utils.data as data_utils
@@ -13,31 +14,46 @@ from tools import balance
 from tqdm import tqdm
 from DANN import DANN
 
-ARCH = "gpt"
+ARCH = "xlm"
 CLS_NUM = 10
 VERBOSE = False
 IS_BALANCED = True
 GROUND_TRUTH = False
-NONLINEAR = False
-USE_DANN = False  # True
 KEY = 'Hong Kong'
 
+# SVM
+SVM_KERNEL = 'linear'
+
+# DANN
+USE_DANN = True
+DANN_BATCH_SIZE = 20
+DANN_HIDDEN = 50
+DANN_LAMBDA = 1.0
+DANN_MAXITER = 4000
+
 # MLP
-HIDDEN_DIM = 100
+NONLINEAR = False
+CACHED = True
+HIDDEN_DIM = 80
 BATCH_SIZE = 15
-CACHED = False
+LEARNING_RATE = 0.01
 MAX_ITER = 20000
 PRINT_FREQ = 100
-DEVICE = torch.device('cuda:0')
+DEVICE = torch.device('cuda:1')
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 TEST_SIZE = 1000
 best_acc = 0.0
 K = 5
 
 # file path
+PART = 'yelp_part'
 PATH = "/DATACENTER/data/pxd/bert_privacy/data/skytrax-reviews-dataset"
 Wiki_DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/part/wiki/{}.{}'
-# DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/part/train.{}.{}'
-DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/train.{}.{}'
+
+DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/{}/train'.format(PART) + '.{}.{}'
+DS_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/{}/EMB/{}/train'.format(PART, ARCH) + '.{}.{}'
+CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/{}/checkpoint/{}/'.format(PART, ARCH)
+
 TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/Target/test.txt'
 TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/Target/test'
 
@@ -45,7 +61,11 @@ EMB_DIM_TABLE = {
     "bert": 1024,
     "gpt": 768,
     "gpt2": 768,
-    "xl": 1024
+    "xl": 1024,
+    "xlnet": 1024,
+    "xlm": 2048,
+    "ernie2": 768,
+    "ernie2_large": 1024
 }
 
 cls_names = {
@@ -61,6 +81,39 @@ cls_names = {
     'Frankfurt'
 }
 
+medical_cls_names = {
+    "leg",
+    "hand",
+    "spine",
+    "chest",
+    "ankle",
+    "head",
+    "hip",
+    "arm",
+    "face",
+    "shoulder"
+}
+
+def yelp_data_prepare():
+    for key in cls_names:
+        f = open('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/yelp_part/{}.1.txt'.format('ankle'),'r')
+        YELP_DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/yelp_part/train.{}.{}'
+        w1 = open(YELP_DS_PATH.format(key, 1) + '.txt', 'w')
+        w0 = open(YELP_DS_PATH.format(key, 0) + '.txt', 'w')
+        for x in f:
+            x = x.replace('ankle',key)
+            if key in x:
+                w1.write(x)
+                w1.write('\n')
+                randKey = key
+                while (randKey == key):
+                    randKey = random.choice(list(cls_names))
+                x = x.replace(key, randKey)
+                w0.write(x)
+                w0.write('\n')
+        f.close()
+        w1.close()
+        w0.close()
 
 def DS_prepare():
     for key in cls_names:
@@ -103,6 +156,21 @@ def EX_DS_prepare(K):
     w0.close()
 
 
+def tsv_EX_DS_prepare():
+    # data(txt) should convert to tsv. before embedding by ernie2
+    for cls in cls_names:
+        for label in range(2):
+            out_file = open(
+                '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/EMB/ernie2/train.{}.{}.tsv'.format(cls,
+                                                                                                              label),
+                'w')
+            tsv_writer = csv.writer(out_file, delimiter='\t')
+            tsv_writer.writerow(['label', 'text_a'])
+            f = open('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/train.{}.{}.txt'.format(cls, label))
+            sents = [x[:-1] for x in f if x[:-1] != '']
+            for i in sents:
+                tsv_writer.writerow(['0', i])
+
 class LinearClassifier(nn.Module):
     def __init__(self):
         super(LinearClassifier, self).__init__()
@@ -120,7 +188,7 @@ class LinearClassifier(nn.Module):
 
 
 class NonLinearClassifier(nn.Module):
-    def __init__(self, embedding_size, hidden_size, cls_num=2, device=torch.device('cuda:0')):
+    def __init__(self, embedding_size, hidden_size, cls_num=2, device=DEVICE):
         super(NonLinearClassifier, self).__init__()
         self.fc1 = Linear(embedding_size, hidden_size)
         self.fc2 = Linear(hidden_size, cls_num)
@@ -173,9 +241,9 @@ class NonLinearClassifier(nn.Module):
         X = torch.FloatTensor(X)
         Y = torch.LongTensor(Y)
 
-        if (CACHED and os.path.exists("{}_cracker_{}.cpt".format(KEY, ARCH))):
+        if (CACHED and os.path.exists(CPT_PATH + "{}_cracker_{}.cpt".format(KEY, ARCH))):
             # print("Loading Model...")
-            self.load_state_dict(torch.load("{}_cracker_{}.cpt".format(KEY, ARCH)))
+            self.load_state_dict(torch.load(CPT_PATH + "{}_cracker_{}.cpt".format(KEY, ARCH)))
             preds = self.predict(X)
             correct = np.sum(preds == y_cpu)
             correct = correct / len(y_cpu)
@@ -191,7 +259,7 @@ class NonLinearClassifier(nn.Module):
             running_loss = 0.0
             criterion = nn.CrossEntropyLoss()
             # optimizer = optim.SGD(self.parameters(), lr=0.1, momentum = 0.9)
-            optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-5)
+            optimizer = optim.Adam(self.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
             for i, data in enumerate(train_loader):
                 # get the inputs; data is a list of [inputs, labels]
                 inputs, labels = data
@@ -219,7 +287,7 @@ class NonLinearClassifier(nn.Module):
                 print("Target Domain Acc.: {:4f}".format(top1))
                 if (top1 >= best_acc):
                     best_acc = top1
-                    torch.save(self.state_dict(), "{}_cracker_{}.cpt".format(KEY, ARCH))
+                    torch.save(self.state_dict(),CPT_PATH + "{}_cracker_{}.cpt".format(KEY, ARCH))
         print("Target Domain Infer {} Best acc top1. {:.4f}".format(KEY, best_acc))
 
 
@@ -231,7 +299,7 @@ def train_atk_classifier(key, size=110, verbose=VERBOSE):
     for i in [0, 1]:
         f = open(DS_PATH.format(key, i) + '.txt', 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
-        embs = embedding(sents, DS_PATH.format(key, i), ARCH)
+        embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH)
         embs = embs[np.random.choice(len(embs), size, replace=False), :]
         X_train.append(embs)
         Y_train.extend([i] * embs.shape[0])
@@ -244,7 +312,7 @@ def train_atk_classifier(key, size=110, verbose=VERBOSE):
         clf = NonLinearClassifier(EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
         clf.to(torch.device('cpu'))
     else:
-        clf = SVC(kernel='linear', gamma='scale', verbose=False)
+        clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=False)
         # clf = LinearClassifier(EMB_DIM_TABLE[ARCH], HIDDEN_DIM, CLS_NUM)
 
     clf.fit(X_train, Y_train)
@@ -293,7 +361,7 @@ def use_DANN(key):
     for i in [0, 1]:
         f = open(DS_PATH.format(key, i) + '.txt', 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
-        embs = embedding(sents, DS_PATH.format(key, i), ARCH)
+        embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH)
         embs = embs[np.random.choice(len(embs), 110, replace=False), :]
         X_train.append(embs)
         Y_train.extend([i] * embs.shape[0])
@@ -302,14 +370,14 @@ def use_DANN(key):
     Y_train = np.array(Y_train)
 
     # X_valid, Y_valid
-    raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATH)
+    raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATH + '.' + ARCH + '.npy')
     X_valid_b = X_valid
     if (IS_BALANCED):
         raw_valid, X_valid = balance(key, raw_valid, X_valid)
     Y_valid = np.array([(key in x) for x in raw_valid])
 
-    clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=4000, verbose=False, name=key, batch_size=64, lambda_adapt=1.0,
-               hidden_layer_size=25)
+    clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=DANN_MAXITER, verbose=False, name=key, batch_size=DANN_BATCH_SIZE, lambda_adapt=DANN_LAMBDA,
+               hidden_layer_size=DANN_HIDDEN)
 
     # How to chose X_adapt? X_valid(after/before balanced),
     acc = clf.fit(X_train, Y_train, X_adapt=X_valid, X_valid=X_valid, Y_valid=Y_valid)
@@ -325,6 +393,9 @@ def main(key=KEY, use_dp=False, dp_func=None, is_balanced=IS_BALANCED):
 if __name__ == '__main__':
     # DS_prepare()
     # EX_DS_prepare()
+    # tsv_EX_DS_prepare()
+    # yelp_data_prepare()
+
     Source_Acc_sum = 0
     Target_Acc_sum = 0
 

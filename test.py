@@ -1,14 +1,20 @@
 import torch
+import os
 import random
 import pytorch_transformers
 from bert_serving.client import BertClient
-import torch
 from tqdm import tqdm
 import numpy as np
 from util import embedding
 from tools import balance
 from mpl_toolkits.mplot3d import Axes3D
 from DANN import DANN
+import paddlehub
+
+import pandas
+import matplotlib
+import csv
+import string
 cls_names = {
     'Hong Kong',
     'London',
@@ -30,12 +36,16 @@ TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/Target/test.txt
 ARCH = 'bert'
 TARGET_EMB_PATH = DS_PATH + '.' + ARCH + '.npy'
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+
 
 def main():
-    f = open('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/train.{}.{}'.format('Hong Kong','1') + '.txt', 'r')
-    target_f = [x[:-1] for x in f if x[:-1] != '']
-    print(len(target_f))
-
+    # embs = np.load('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/EMB/ernie/train.Hong Kong.0.ernie2.npy')
+    # print(embs[0])
+    # embss = np.load('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/EMB/ernie2/train.Hong Kong.0.ernie2.npy')
+    # print(embss[0])
+    print('.')
 
 if __name__ == "__main__":
     main()
