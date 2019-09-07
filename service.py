@@ -1,11 +1,18 @@
 ## this file is used to implement the general service
-## begin to implement the service
+## begin to implement the service with zmq
 
 import torch
 from pytorch_transformers import *
 from tqdm import tqdm
 import numpy as np
 from tools import zero_padding
+import time
+import zmq
+import json
+from io import BytesIO
+import pickle
+
+
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -21,9 +28,9 @@ MODELS = {'bert': (BertModel,       BertTokenizer,      'bert-base-uncased'),
           'roberta': (RobertaModel,    RobertaTokenizer,   'roberta-base')}
 
 
-class LMClient(object):
+class LMServer(object):
     def __init__(self, name, chunck_size = 64, max_length = 100, device = torch.device('cuda:0')):
-        super(LMClient, self).__init__()
+        super(LMServer, self).__init__()
         self.chunck_size = chunck_size
         self.tokenizer = MODELS[name][1].from_pretrained(MODELS[name][2])
         self.max_length = max_length
@@ -34,7 +41,32 @@ class LMClient(object):
         self.device = device
         # move model to device
         self.model.to(self.device)
+        self.port = 5555
+        self.addr = "tcp://*:"+ str(self.port)
+        # start the server
 
+
+
+    def start(self):
+        context = zmq.Context()
+        socket = context.socket(zmq.REP)
+        socket.bind(self.addr)
+        print("Prepared. Start Serving at {}...".format(self.addr))
+        while True:
+            #  Wait for next request from client
+            message = socket.recv_json()
+            sents = json.loads(message)
+
+            print("Received # of Sents: {}".format(len(sents)))
+            embs = self.encode(sents)
+            f = BytesIO()
+            pickle.dump(embs, f)
+            
+            # time.sleep(1)
+            # then th
+            socket.send(f.getvalue())
+            
+        
         
     # given the sentences, return the embeddings
     def encode(self, sents):
@@ -56,11 +88,14 @@ class LMClient(object):
                 out.append(hidden_states[:, -1, :].to(cpu).numpy())
                 counter += 1
         return np.concatenate(out, axis = 0)
+
     
 if __name__ == '__main__':
-    test_sents = list(open('data/medical.test.txt', 'r'))
-    for key in MODELS.keys():
-        print("BEGIN THE {} MODEL".format(key))
-        client = LMClient(key, chunck_size = 64)
-        embs = client.encode(test_sents)
-        print(embs.shape)
+    # test_sents = list(open('data/medical.test.txt', 'r'))
+    # for key in MODELS.keys():
+    #     print("BEGIN THE {} MODEL".format(key))
+    #     client = LMClient(key, chunck_size = 64)
+    #     embs = client.encode(test_sents)
+    #     print(embs.shape)
+    server = LMServer(name = 'bert')
+    server.start()
