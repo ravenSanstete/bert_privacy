@@ -16,10 +16,15 @@ from sklearn.ensemble import RandomForestClassifier
 import argparse
 
 
+
+TOTAL_LEN = 20
+
+
 parser = argparse.ArgumentParser(description='Genome Attack')
 parser.add_argument("-p", type=int, default= 0, help = 'the position to attack')
 parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
 ARGS = parser.parse_args()
+
 
 def explate(seq):
     out = ""
@@ -33,7 +38,7 @@ def extract_genomes(path):
     for i in range(4): next(f)
     for line in f:
         line = line.split(' ')
-        out.append(line[-1][:100])
+        out.append(line[-1][:TOTAL_LEN])
     return out
 ## extraction 
 def _extract_genomes(path):
@@ -42,7 +47,7 @@ def _extract_genomes(path):
     for i in range(4): next(f)
     for line in f:
         line = line.split(' ')
-        out.append(line[-1][:-1])
+        out.append(line[-1][:TOTAL_LEN])
     return out
 
 def prepare_raw_datasets():
@@ -111,12 +116,12 @@ TABLE = {
     }
 REVERSE_TABLE  = ["A", "G", "C", "T"]
 EMB_DIM_TABLE = {
-    "bert": 1024
+    "bert": 1024,
+    'gpt' : 768
     }
-INTERVAL_LEN = 3
+INTERVAL_LEN = 1
 
-TOTAL_LEN = 20
-ARCH = 'bert'
+ARCH = 'gpt'
 
 def seq2id(s):
     val = 0
@@ -133,13 +138,16 @@ def id2seq(val):
 
 def gen(target = 0):
     # @param target: which specifies the inverval to infer (i.e. [target, target + inverval_LEN))
-    key = [random.choice(REVERSE_TABLE) for i in range(target, target+INTERVAL_LEN)]
+    # key = [random.choice(REVERSE_TABLE) for i in range(target, target+INTERVAL_LEN)]
     part_A = [random.choice(REVERSE_TABLE) for i in range(0, target)]
     part_B = [random.choice(REVERSE_TABLE) for i in range(target+INTERVAL_LEN, TOTAL_LEN)]
-    return "".join(part_A + key + part_B), seq2id("".join(key))
+    # to 
+    return [("".join(part_A + [key] + part_B), seq2id("".join([key]))) for key in REVERSE_TABLE]
 
 def get_batch(target = 0, batch_size = 10):
-    batch = [gen(target) for i in range(batch_size)]
+    batch = []
+    for i in range(batch_size):
+        batch.extend(gen(target))
     z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
     y = [int(y) for x, y in batch]
     z = torch.FloatTensor(z)
@@ -162,6 +170,9 @@ class Classifier(nn.Module):
         super(Classifier, self).__init__()
         self.fc1 = Linear(embedding_size, hidden_size)
         hidden_size_2 = 100
+        self.bn1 = nn.BatchNorm1d(embedding_size)
+        self.bn2 = nn.BatchNorm1d(hidden_size)
+        self.bn3 = nn.BatchNorm1d(hidden_size_2)
         self.fc2 = Linear(hidden_size, hidden_size_2)
         self.fc3 = Linear(hidden_size_2, cls_num)
         self.device = device
@@ -170,8 +181,8 @@ class Classifier(nn.Module):
         
 
     def forward(self, x):
-        x = torch.sigmoid(self.fc1(x))
-        x = torch.sigmoid(self.fc2(x))
+        x = torch.sigmoid(self.bn2(self.fc1(self.bn1(x))))
+        x = torch.sigmoid(self.bn3(self.fc2(x)))
         x = self.fc3(x)
         return x
     
@@ -216,11 +227,11 @@ def train_attacker(target = 0):
     MAX_ITER = 10000
     CACHED = ARGS.c
     PRINT_FREQ = 100
-    DEVICE = torch.device('cuda:1')
+    DEVICE = torch.device('cuda:0')
     TEST_SIZE = 1000
     HIDDEN_DIM = 400
-    BATCH_SIZE = 256 # 128 #64
-    TRUTH = True
+    BATCH_SIZE = 256 // 4 # 128 #64
+    TRUTH = False
     EMB_DIM = EMB_DIM_TABLE[ARCH]
     PATH = "checkpoints/{}-{}_cracker_tmp_len_20_hidden_400_100.cpt".format(TARGET, TARGET + INTERVAL_LEN)
     best_acc = 0.0
@@ -237,7 +248,7 @@ def train_attacker(target = 0):
         test_x, test_y, _ = get_batch(TARGET, TEST_SIZE)
 
     test_x = test_x.to(DEVICE)
-    optimizer = optim.SGD(classifier.parameters(), lr = 0.05)
+    # optimizer = optim.SGD(classifier.parameters(), lr = 0.05)
     optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
     running_loss = 0.0
     
@@ -264,6 +275,8 @@ def train_attacker(target = 0):
                 best_acc = acc
                 torch.save(classifier.state_dict(), PATH)
                 print("save model acc. {:.4f}".format(best_acc))
+                if(best_acc > 0.9):
+                    break
     return best_acc
 
 
@@ -284,13 +297,13 @@ def train_random_forest(target = 0):
 
 if __name__ == '__main__':
     # prepare_raw_datasets()
-    # construct_datasets("bert")
+    # construct_datasets("gpt")
     # predict()
     # import sys; sys.exit()
     # acc = 1.0
-    # for target in range(5, 10):
-    target =ARGS.p
-    acc = train_attacker(target)
+    for target in range(8, 10):
+        # target =ARGS.p
+        acc = train_attacker(target)
         # acc *= train_random_forest(target)
     print("Restore 20-length gene Acc.: {}".format(acc))
 

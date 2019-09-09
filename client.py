@@ -9,20 +9,22 @@ import pickle
 
 
 class LMClient(object):
-    def __init__(self):
+    def __init__(self, name = None):
+        self.name = name
         context = zmq.Context()
         #  Socket to talk to server
-        print("Connecting to LM server…")
+        # print("Connecting to LM server…")
         self.socket = context.socket(zmq.REQ)
         self.socket.connect("tcp://localhost:5555")
 
     # @param: sents are in the form of array of strings
     def encode(self, sents):
         self.socket.send_json(json.dumps(sents))
-        time.sleep(1)
+        # print(sents)
+        # time.sleep(1)
         message = self.socket.recv() # a binary file of pickled numpy string
         embs = pickle.load(BytesIO(message))
-        print(embs.shape)
+        # print(embs.shape)
         return embs
         
         
@@ -32,9 +34,10 @@ class LMClient(object):
 
 if __name__ == '__main__':
     test_sents = list(open('data/medical.test.txt', 'r'))
-    test_sents = test_sents[:256]
+    test_sents = test_sents[:10]
 
     client = LMClient()
     for request in range(10):
-        client.encode(test_sents)
+        embs = client.encode(test_sents)
+        print(embs.shape)
 

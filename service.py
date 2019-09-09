@@ -12,6 +12,11 @@ import json
 from io import BytesIO
 import pickle
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('--name', help='the architecture your would like to use', type = str, default = 'bert')
+ARGS = parser.parse_args()
+
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
@@ -51,7 +56,7 @@ class LMServer(object):
         context = zmq.Context()
         socket = context.socket(zmq.REP)
         socket.bind(self.addr)
-        print("Prepared. Start Serving at {}...".format(self.addr))
+        print("Prepared. Start {} Serving at {}...".format(self.addr, ARGS.name))
         while True:
             #  Wait for next request from client
             message = socket.recv_json()
@@ -97,5 +102,6 @@ if __name__ == '__main__':
     #     client = LMClient(key, chunck_size = 64)
     #     embs = client.encode(test_sents)
     #     print(embs.shape)
-    server = LMServer(name = 'bert')
+
+    server = LMServer(name = ARGS.name)
     server.start()
