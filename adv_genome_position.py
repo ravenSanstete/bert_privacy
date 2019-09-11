@@ -30,10 +30,13 @@ import seaborn as sns; sns.set()
 TOTAL_LEN = 20
 
 
+
 parser = argparse.ArgumentParser(description='Genome Attack')
 parser.add_argument("-p", type=int, default= 0, help = 'the position to attack')
 parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
 ARGS = parser.parse_args()
+
+
 
 def do_kdtree(combined_x_y_arrays,points):
     mytree = cKDTree(combined_x_y_arrays)
@@ -137,6 +140,23 @@ INTERVAL_LEN = 1
 
 ARCH = 'gpt'
 
+POS_EMBED_DIM = EMB_DIM_TABLE[ARCH]
+
+
+def get_positional_embedding(d_pos_vec, n_position):
+    position_enc = np.array([
+    [pos / np.power(10000, 2*i/d_pos_vec) for i in range(d_pos_vec)]
+    if pos != 0 else np.zeros(d_pos_vec) for pos in range(n_position)])
+
+    position_enc[1:, 0::2] = np.sin(position_enc[1:, 0::2]) # dim 2i
+    position_enc[1:, 1::2] = np.cos(position_enc[1:, 1::2]) # dim 2i+1
+    return position_enc
+
+POS_EMBEDDING = get_positional_embedding(POS_EMBED_DIM, TOTAL_LEN)
+
+print(POS_EMBEDDING)
+
+
 def seq2id(s):
     val = 0
     base = 4 ** (INTERVAL_LEN - 1)
@@ -153,57 +173,36 @@ def id2seq(val):
 def gen(target = 0):
     # @param target: which specifies the inverval to infer (i.e. [target, target + inverval_LEN))
     # key = [random.choice(REVERSE_TABLE) for i in range(target, target+INTERVAL_LEN)]
-    part_A = [random.choice(REVERSE_TABLE) for i in range(0, target)]
-    part_B = [random.choice(REVERSE_TABLE) for i in range(target+INTERVAL_LEN, TOTAL_LEN)]
-    # to 
-    return [("".join(part_A + [key] + part_B), seq2id("".join([key]))) for key in REVERSE_TABLE]
+    seq = [random.choice(REVERSE_TABLE) for i in range(TOTAL_LEN)]
+    return [("".join(seq), seq2id(seq[target])), target]
+
 
 CENTERS = []
 PLOTTED = False
 
 
-def get_batch(target = 0, batch_size = 10):
-    global PLOTTED
-    pca = PCA(n_components=2)
+"""
+Now the batch consists of (seq, id, positional_embedding)
+"""
+def get_batch(batch_size = 10):
     batch = []
+    TARGETS = list(range(TOTAL_LEN))
     for i in range(batch_size):
-        batch.extend(gen(target))
-    z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
+        target = random.choice(TARGETS)
+        batch.append(gen(target))
+    # for i in range(batch_size):
+    #     target = random.choice(TARGETS)
+    #     batch.append([gen(target), target])
+    z = embedding([b[0][0] for b in batch], "tmp", ARCH, cached = False)
+    pos_embeddings = np.array([POS_EMBEDDING[b[1]] for b in batch])
+    # z = np.concatenate([z, pos_embeddings], axis = 1)
+    z = z + pos_embeddings
     # to centralize the embeddings
-    centers = []
-    inner_cluster_dist = []
-    # for i in range(z.shape[0]//4):
-    #     c = np.mean(z[i*4:(i+1)*4, :], axis = 0)
-    #     z[i*4:(i+1)*4] =  z[i*4:(i+1)*4] - c
-    # A_vecs = []
-    # for k in range(4):
-    #     A_vecs.append(np.array([z[i, :] for i in range(z.shape[0]) if i % 4 == k]))
-    # total = np.concatenate(A_vecs, axis = 0)
-    # pca = MDS(n_components=2)
-    # total = pca.fit_transform(total)
-    # colors = sns.color_palette("hls", 4)
-    # interval = len(total) // 4
-    # if(not PLOTTED):
-    #     for k in range(4):
-    #         plt.scatter(total[k*interval:(k+1)*interval,0], total[k*interval:(k+1)*interval,1], c = [colors[k] for i in range(interval)])
-    #     plt.savefig('delta_mds_center.png')
-    #     PLOTTED = True
-    
-        # centers.append(c)
-        # if(np.random.rand() < 0.1):
-        #    CENTERS.append(c) # collect the centers
-    # inner_cluster_dist = np.linalg.norm(z, axis = 0)
-    # centers = np.array(centers)
-    # dist = pdist(centers, 'euclidean')
-    # print("OUTER: {}".format(describe(dist)))
-    # print("INNER: {}".format(describe(inner_cluster_dist)))
-    # for i in range(z.shape[0]):
-    #     z[i, :] = z[i, :] - np.mean(z[i, :]) # what about the average
-
-    y = [int(y) for x, y in batch]
+    y = [b[0][1] for b in batch]
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
-    return z, y, [x for x, y in batch]
+    # print(z.shape)
+    return z, y, [b[0][0] for b in batch]
 
 
 def get_batch_ground_truth(target = 0, batch_size = 10):
@@ -220,19 +219,12 @@ class Classifier(nn.Module):
     def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:1')):
         super(Classifier, self).__init__()
         self.encoder = nn.Sequential(Linear(embedding_size, 400),
+                                     nn.BatchNorm1d(400),
                                         nn.Sigmoid(),
-                                        Linear(400, 200),
-                                     nn.Sigmoid(),
-                                     Linear(200, 100))
+                                     Linear(400, 100),
+                                        nn.Sigmoid(),
+                                     nn.BatchNorm1d(100))
         
-        self.decoder = nn.Sequential(Linear(20, 100),
-                                     nn.ReLU(True),
-                                     Linear(100, 200),
-                                     nn.ReLU(True),
-                                     Linear(200, 400),
-                                     nn.ReLU(True),
-                                     Linear(400, embedding_size),
-                                     nn.ReLU(True))
         self.classifier = Linear(100, cls_num)
         self.device = device
         self.criterion = nn.CrossEntropyLoss()
@@ -253,12 +245,6 @@ class Classifier(nn.Module):
             probs = self(x)
             _, topk = torch.topk(probs, k)
         return topk.cpu().numpy()
-    
-    def pretrain_loss(self, x):
-        z = self.encoder(x)
-        z = self.decoder(z)
-        _loss = F.mse_loss(z, x)
-        return _loss
         
         
     def loss(self, x, y):
@@ -267,13 +253,6 @@ class Classifier(nn.Module):
         return _loss
 
     def evaluate(self, x, y):
-        # x = x.cpu().numpy()
-        # dist, indexes = do_kdtree(CENTERS, x)
-        # print("DIST:{}".format(dist))
-        # print("INDICES:{}".format(indexes))
-        # for i in range(x.shape[0]):
-        #     x[i, :] = x[i, :] - CENTERS[indexes[i]]
-        # x = torch.FloatTensor(x).cuda()
         with torch.no_grad():
             preds = self.predict(x)
             y = y.numpy()
@@ -290,82 +269,22 @@ class Classifier(nn.Module):
             acc = [int(y[i] in topk[i, :]) for i in range(len(y))]
         return np.mean(acc)
 
-
-class DANNClassifier(nn.Module):
-    def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:1')):
-        super(DANNClassifier, self).__init__()
-        self.encoderA = Linear(embedding_size, hidden_size)
-        self.encoderB = Linear(embedding_size, hidden_size)
-        self.classifier = Linear(hidden_size, cls_num)
-        self.device = device
-        self.rev_grad = RevGrad()
-        self.criterion = nn.CrossEntropyLoss()
-
-    def forward(self, x):
-        z = torch.sigmoid(self.encoderA(x))
-        x = self.classifier(z)
-        return x
-    
-    def loss(self, x, y):
-        z = torch.sigmoid(self.encoderA(x))
-        a = torch.sigmoid(self.encoderB(x))
-        delta = z + a
-        z = self.classifier(z)
-        a = self.classifier(self.rev_grad(a)) # put a gradient reversal layer
-        _lossA = self.criterion(z, y)
-        _lossB = self.criterion(a, y)
-        reconstruction_loss = F.mse_loss(x, delta)
-        coeff = 0.01
-        return _lossA + _lossB + coeff * reconstruction_loss
-
-    def predict(self, x):
-        outputs = self(x)
-        _, preds = torch.max(outputs, 1)
-        return preds.cpu().numpy()
-
-    def predict_topk(self, x, k = 5):
-        with torch.no_grad():
-            probs = self(x)
-            _, topk = torch.topk(probs, k)
-        return topk.cpu().numpy()
-
-    def evaluate(self, x, y):
-        with torch.no_grad():
-            preds = self.predict(x)
-            y = y.numpy()
-            print(np.histogram(y))
-            print(np.histogram(preds))
-        return np.mean(preds == y)
-
-    def evaluate_topk(self, x, y, k = 5):
-        y = y.numpy()
-        with torch.no_grad():
-            probs = self(x)
-            _, topk = torch.topk(probs, k)
-            topk = topk.cpu().numpy()
-            acc = [int(y[i] in topk[i, :]) for i in range(len(y))]
-        return np.mean(acc)
-        
-         
-
-
-    
 
 def train_attacker(target = 0):
     TARGET = target
     CLS_NUM = 4 ** INTERVAL_LEN
     print("INFER GENE SUBSEQ [{}, {}) CLS NUMBER {}".format(TARGET, TARGET + INTERVAL_LEN, CLS_NUM))
     MAX_ITER = 10000
-    CACHED = ARGS.c
+    CACHED = True
     PRINT_FREQ = 100
     DEVICE = torch.device('cuda:1')
     TEST_SIZE = 1000
     HIDDEN_DIM = 200
-    BATCH_SIZE = 64 # 128 #64
-    TRUTH = True
+    BATCH_SIZE = 256 # 128 #64
+    TRUTH = False
     EMB_DIM = EMB_DIM_TABLE[ARCH]
     PATH = "checkpoints/{}-{}_cracker_tmp_len_20_hidden_400_100.cpt".format(TARGET, TARGET + INTERVAL_LEN)
-    best_acc = 0.0
+    best_acc = 0.60
     K = 2
     classifier = Classifier(EMB_DIM, HIDDEN_DIM, CLS_NUM, DEVICE)
     if(CACHED and Path(PATH).exists()):
@@ -376,36 +295,19 @@ def train_attacker(target = 0):
     if(TRUTH):
         test_x, test_y, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
     else:
-        test_x, test_y, _ = get_batch(TARGET, TEST_SIZE)
+        test_x, test_y, _ = get_batch(TEST_SIZE)
 
     test_x = test_x.to(DEVICE)
     # optimizer = optim.SGD(classifier.parameters(), lr = 0.1)
-    optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
+    optimizer = optim.Adam(classifier.parameters(), lr = 0.005)
     running_loss = 0.0
-    running_mean = np.zeros([EMB_DIM])
 
-    # print("PRETRAIN")
-    # for i in tqdm(range(MAX_ITER)):
-    #     x, _, _ = get_batch(TARGET, BATCH_SIZE)
-    #     x = x.to(DEVICE)
-    #     optimizer.zero_grad()
-    #     loss = classifier.pretrain_loss(x)
-    #     loss.backward()
-    #     optimizer.step()
-    #     running_loss += loss.item()
-        
-    #     if((i + 1) % PRINT_FREQ == 0):
-    #         print("Iteration {} Reconstruction Loss: {:.4f}".format(i+1, running_loss/PRINT_FREQ))
-    #         running_loss = 0.0
-        
-
-    running_loss = 0.0    
     
     # acc = classifier.evaluate(test_x, test_y)
     # topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
     # print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
-        x, y, raw = get_batch(TARGET, BATCH_SIZE)
+        x, y, raw = get_batch(BATCH_SIZE)
         x, y = x.to(DEVICE), y.to(DEVICE)
         optimizer.zero_grad()
         loss = classifier.loss(x, y)
@@ -418,7 +320,6 @@ def train_attacker(target = 0):
             topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
             print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(i+1, running_loss/PRINT_FREQ, acc, K, topk_acc))
             running_loss = 0.0
-            running_mean = np.zeros([EMB_DIM])
             # print(raw[:4])
             # print(y[:4])
             if(acc >= best_acc):
@@ -447,13 +348,14 @@ def train_random_forest(target = 0):
 
 if __name__ == '__main__':
     # prepare_raw_datasets()
-    construct_datasets("gpt")
+    # construct_datasets("gpt")
     # predict()
     # import sys; sys.exit()
     # acc = 1.0
-    for target in range(5, 20):
+    for i in range(10):
+        for target in range(5, 6):
         # target =ARGS.p
-        acc = train_attacker(target)
+            acc = train_attacker(target)
         # acc *= train_random_forest(target)
     print("Restore 20-length gene Acc.: {}".format(acc))
 

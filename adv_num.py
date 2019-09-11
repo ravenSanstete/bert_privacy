@@ -14,7 +14,10 @@ from util import embedding
 from Levenshtein import distance
 from tqdm import tqdm
 
-ARCH = "bert"
+ARCH = "gpt"
+
+
+TOTAL_LEN = 20
 
 BOS_token = 0
 EMB_DIM_TABLE = {
@@ -27,7 +30,7 @@ EMB_DIM_TABLE = {
 EMB_DIM = EMB_DIM_TABLE[ARCH]
 # PAD_token = len(VOCAB)
 
-BATCH_SIZE = 64
+BATCH_SIZE = 256
 
 TABLE = {
     "A": 0,
@@ -39,7 +42,7 @@ TABLE = {
 VOCAB =  ["A", "G", "C", "T"]
 
 REVERSE_TABLE = VOCAB
-INTERVAL_LEN = 5
+INTERVAL_LEN = 10
 
 
 def _extract_genomes(path):
@@ -101,10 +104,13 @@ class Decoder(nn.Module):
                        hidden_size = hidden_size,
                        num_layers = num_layers,
                        dropout = dropout,
-                       bidirectional = False)          
-        self.output = Linear(in_features = hidden_size,
+                       bidirectional = False)
+        hidden_size_2 = 300
+        self.output = Linear(in_features = hidden_size_2,
                                out_features = output_size)
-        print(output_size)
+        
+        self.hidden2 = Linear(hidden_size, hidden_size_2)
+
         self.length = length
         self.output_size = output_size
         self.device = device
@@ -121,7 +127,7 @@ class Decoder(nn.Module):
     def forward(self, in_token, h_t):
         rep = self.embedding(in_token) # (1, batch_size, emb_dim)
         rnn_out, h_new = self.gru(rep, h_t)
-        rnn_out = self.output(rnn_out)
+        rnn_out = self.output(F.sigmoid(self.hidden2(rnn_out)))
         # rnn_out = F.softmax(rnn_out, dim = 1)
         return rnn_out, h_new
 

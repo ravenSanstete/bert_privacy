@@ -9,13 +9,13 @@ import pickle
 
 
 class LMClient(object):
-    def __init__(self, name = None):
+    def __init__(self, name = None, port = 5555):
         self.name = name
         context = zmq.Context()
         #  Socket to talk to server
         # print("Connecting to LM server…")
         self.socket = context.socket(zmq.REQ)
-        self.socket.connect("tcp://localhost:5555")
+        self.socket.connect("tcp://localhost:"+str(port))
 
     # @param: sents are in the form of array of strings
     def encode(self, sents):

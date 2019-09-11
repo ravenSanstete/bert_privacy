@@ -15,6 +15,7 @@ import pickle
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', help='the architecture your would like to use', type = str, default = 'bert')
+parser.add_argument('--port', help='port', type = int, default = 5555)
 ARGS = parser.parse_args()
 
 
@@ -46,7 +47,7 @@ class LMServer(object):
         self.device = device
         # move model to device
         self.model.to(self.device)
-        self.port = 5555
+        self.port = ARGS.port
         self.addr = "tcp://*:"+ str(self.port)
         # start the server
 
@@ -87,7 +88,7 @@ class LMServer(object):
         out = []
         with torch.no_grad():
             counter = 0
-            for batch in tqdm(batches):
+            for batch in (batches):
                 batch = batch.to(self.device)
                 hidden_states = self.model(batch)[0]
                 out.append(hidden_states[:, -1, :].to(cpu).numpy())
