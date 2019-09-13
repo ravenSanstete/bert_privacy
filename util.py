@@ -7,17 +7,21 @@ from pathlib import Path
 from client import LMClient
 
 
-PORT = 5555
 
-def embedding(sents, name, arch, cached = True, is_tokenized = False):
-    file_name = name + '.' + arch +'.npy'
-    if(cached and Path(file_name).exists()):
-        return np.load(file_name)
-    else:
-        client = LMClient(arch, port = PORT)
-        embs = client.encode(sents)
-        np.save(file_name, embs)
-        return embs
+
+class Embedder(object):
+    def __init__(self, port = 5555):
+        self.port = port
+
+    def embedding(self, sents, name, arch, cached = True, is_tokenized = False):
+        file_name = name + '.' + arch +'.npy'
+        if(cached and Path(file_name).exists()):
+            return np.load(file_name)
+        else:
+            client = LMClient(arch, port = self.port)
+            embs = client.encode(sents)
+            np.save(file_name, embs)
+            return embs
 
 
 

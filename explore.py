@@ -1,5 +1,5 @@
 ## to explore the genome case
-from util import embedding
+from util import Embedder
 import numpy as np
 from sklearn.svm import SVC
 from sklearn import linear_model
@@ -16,11 +16,13 @@ from sklearn.ensemble import RandomForestClassifier
 import argparse
 from scipy.spatial.distance import pdist
 from scipy.stats import describe
-
+import os 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set()
+
+
 
 TABLE = {
     "A": 0,
@@ -32,6 +34,7 @@ REVERSE_TABLE  = ["A", "G", "C", "T"]
 INTERVAL_LEN = 1
 TOTAL_LEN = 20
 ARCH = 'gpt'
+
 
 def gen(target = 0):
     # @param target: which specifies the inverval to infer (i.e. [target, target + inverval_LEN))
@@ -76,18 +79,43 @@ def compute_diff(z):
     
 
 if __name__ == '__main__':
-    diffs = []
-    for i in range(TOTAL_LEN):
-        TARGET = i
-        sample_size = 1024
-        z, y, x = get_batch(TARGET, sample_size)
-        diff = compute_diff(z)
-        diffs.append(diff)
+    import torch
+    from pytorch_transformers import *
+    PATH = "/home/mlsnrs/data/pxd/lms"
+    # PyTorch-Transformers has a unified API
+    # for 7 transformer architectures and 30 pretrained weights.
+    #          Model          | Tokenizer          | Pretrained weights shortcut
+    MODELS = [(RobertaModel,    RobertaTokenizer,   'roberta-base')]
+
+    # Let's encode some text in a sequence of hidden-states using each model:
+    for model_class, tokenizer_class, pretrained_weights in MODELS:
+        path = '/home/mlsnrs/data/pxd/lms/{}/'.format(pretrained_weights)
+        if not os.path.exists(path):
+            os.mkdir(path)
+        # Load pretrained model/tokenizer
+        tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
+        model = model_class.from_pretrained(pretrained_weights)
+
+        # Encode text
+        input_ids = torch.tensor([tokenizer.encode("Here is some text to encode", add_special_tokens=True)])  # Add special tokens takes care of adding [CLS], [SEP], <s>... tokens in the right way for each model.
+        with torch.no_grad():
+            last_hidden_states = model(input_ids)[0]  # Models outputs are now tuples
+            print("{}:{}".format(pretrained_weights, last_hidden_states[-1, :].shape))
+        model.save_pretrained(path)  # save
+        # model = model_class.from_pretrained('./directory/to/save/')  # re-load
+        tokenizer.save_pretrained(path)  # save
+    # diffs = []
+    # for i in range(TOTAL_LEN):
+    #     TARGET = i
+    #     sample_size = 1024
+    #     z, y, x = get_batch(TARGET, sample_size)
+    #     diff = compute_diff(z)
+    #     diffs.append(diff)
     
-    plt.plot(list(range(TOTAL_LEN)), diffs)
-    plt.savefig('curve.png')
+    # plt.plot(list(range(TOTAL_LEN)), diffs)
+    # plt.savefig('curve.png')
     
-    # print(z.shape)
-    # print(y)
+    # # print(z.shape)
+    # # print(y)
     
     

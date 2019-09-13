@@ -1,5 +1,5 @@
 ## the attack on the genome data
-from util import embedding
+from util import Embedder
 import numpy as np
 from sklearn.svm import SVC
 from sklearn import linear_model
@@ -22,26 +22,55 @@ from scipy.spatial import cKDTree
 from sklearn.manifold import MDS
 from numpy import linalg as LA
 
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set()
 
-TOTAL_LEN = 20
-
-
 
 parser = argparse.ArgumentParser(description='Genome Attack')
-parser.add_argument("-p", type=int, default= 0, help = 'the position to attack')
+parser.add_argument("-p", type=int, default= 5555, help = 'the comm port the client will use')
 parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
+parser.add_argument("-t", action='store_true', help = "to switch between training or testing")
+parser.add_argument("--save_p", type=str, default="default", help = 'the place to store the model')
+parser.add_argument("-a", type=str, default='bert', help = 'targeted architecture')
 ARGS = parser.parse_args()
 
 
 
-def do_kdtree(combined_x_y_arrays,points):
-    mytree = cKDTree(combined_x_y_arrays)
-    dist, indexes = mytree.query(points)
-    return dist, indexes
+
+TOTAL_LEN = 20
+
+# The attacker model, which is used to infer the genetic subsequence at a fixed interval (a 4)
+TABLE = {
+    "A": 0,
+    "G": 1,
+    "C": 2,
+    "T": 3
+    }
+REVERSE_TABLE  = ["A", "G", "C", "T"]
+EMB_DIM_TABLE = {
+    "bert": 768,
+    'gpt' : 768,
+    'gpt-2': 768,
+    'transform-xl': 1024,
+    'xlnet': 768,
+    'xlm': 1024
+    }
+INTERVAL_LEN = 1
+
+ARCH = ARGS.a
+
+POS_EMBED_DIM = EMB_DIM_TABLE[ARCH]
+
+
+
+
+
+embedder = Embedder(ARGS.p)
+embedding = embedder.embedding # export the functional port
+
 
 def explate(seq):
     out = ""
@@ -124,23 +153,6 @@ def predict(embedding_path = "data/acceptor_hs3d/IE.{}"):
     pass
 
 
-# The attacker model, which is used to infer the genetic subsequence at a fixed interval (a 4)
-TABLE = {
-    "A": 0,
-    "G": 1,
-    "C": 2,
-    "T": 3
-    }
-REVERSE_TABLE  = ["A", "G", "C", "T"]
-EMB_DIM_TABLE = {
-    "bert": 1024,
-    'gpt' : 768
-    }
-INTERVAL_LEN = 1
-
-ARCH = 'gpt'
-
-POS_EMBED_DIM = EMB_DIM_TABLE[ARCH]
 
 
 def get_positional_embedding(d_pos_vec, n_position):
@@ -154,16 +166,10 @@ def get_positional_embedding(d_pos_vec, n_position):
 
 POS_EMBEDDING = get_positional_embedding(POS_EMBED_DIM, TOTAL_LEN)
 
-print(POS_EMBEDDING)
 
 
 def seq2id(s):
-    val = 0
-    base = 4 ** (INTERVAL_LEN - 1)
-    for i, c in enumerate(s):
-        val += base * TABLE[c]
-        base = base // 4
-    return val
+    return TABLE[s]
 
 def id2seq(val):
     s = np.base_repr(val, base = 4).zfill(INTERVAL_LEN)  
@@ -179,6 +185,7 @@ def gen(target = 0):
 
 CENTERS = []
 PLOTTED = False
+CONCAT = True
 
 
 """
@@ -195,8 +202,11 @@ def get_batch(batch_size = 10):
     #     batch.append([gen(target), target])
     z = embedding([b[0][0] for b in batch], "tmp", ARCH, cached = False)
     pos_embeddings = np.array([POS_EMBEDDING[b[1]] for b in batch])
-    # z = np.concatenate([z, pos_embeddings], axis = 1)
-    z = z + pos_embeddings
+    if(CONCAT):
+        z = np.concatenate([z, pos_embeddings], axis = 1)
+    else:
+        z = z + pos_embeddings
+    # z = z + pos_embeddings
     # to centralize the embeddings
     y = [b[0][1] for b in batch]
     z = torch.FloatTensor(z)
@@ -209,6 +219,12 @@ def get_batch_ground_truth(target = 0, batch_size = 10):
     embedding_path = "data/acceptor_hs3d/IE.{}"
     TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
     z = embedding(None, embedding_path.format(1), ARCH)[:batch_size, :]
+    ## obtain the correposnding positional embedding
+    pos_embeddings = np.array([POS_EMBEDDING[target] for i in range(batch_size)])
+    if(CONCAT):
+        z = np.concatenate([z, pos_embeddings], axis = 1)
+    else:
+        z = z + pos_embeddings
     y = _extract_genomes(TRUE_PATH)[:batch_size]
     y = [seq2id(x[target:target+INTERVAL_LEN]) for x in y]
     z = torch.FloatTensor(z)
@@ -256,8 +272,8 @@ class Classifier(nn.Module):
         with torch.no_grad():
             preds = self.predict(x)
             y = y.numpy()
-            print(np.histogram(y))
-            print(np.histogram(preds))
+            # print(np.histogram(y))
+            # print(np.histogram(preds))
         return np.mean(preds == y)
 
     def evaluate_topk(self, x, y, k = 5):
@@ -269,24 +285,29 @@ class Classifier(nn.Module):
             acc = [int(y[i] in topk[i, :]) for i in range(len(y))]
         return np.mean(acc)
 
+DEVICE = torch.device('cuda:1')
 
-def train_attacker(target = 0):
+def train_attacker(target = 0, path = None):
     TARGET = target
     CLS_NUM = 4 ** INTERVAL_LEN
     print("INFER GENE SUBSEQ [{}, {}) CLS NUMBER {}".format(TARGET, TARGET + INTERVAL_LEN, CLS_NUM))
-    MAX_ITER = 10000
+    MAX_ITER = 100000
     CACHED = True
     PRINT_FREQ = 100
-    DEVICE = torch.device('cuda:1')
+
     TEST_SIZE = 1000
     HIDDEN_DIM = 200
     BATCH_SIZE = 256 # 128 #64
     TRUTH = False
     EMB_DIM = EMB_DIM_TABLE[ARCH]
-    PATH = "checkpoints/{}-{}_cracker_tmp_len_20_hidden_400_100.cpt".format(TARGET, TARGET + INTERVAL_LEN)
-    best_acc = 0.60
+    PATH = path
+    best_acc = 0.0
     K = 2
-    classifier = Classifier(EMB_DIM, HIDDEN_DIM, CLS_NUM, DEVICE)
+    if(CONCAT):
+        emb_dim = EMB_DIM + POS_EMBED_DIM
+    else:
+        emb_dim = EMB_DIM
+    classifier = Classifier(emb_dim, HIDDEN_DIM, CLS_NUM, DEVICE)
     if(CACHED and Path(PATH).exists()):
         print("Loading Model...")
         classifier.load_state_dict(torch.load(PATH))
@@ -298,14 +319,14 @@ def train_attacker(target = 0):
         test_x, test_y, _ = get_batch(TEST_SIZE)
 
     test_x = test_x.to(DEVICE)
-    # optimizer = optim.SGD(classifier.parameters(), lr = 0.1)
+    # optimizer = optim.SGD(classifier.parameters(), lr = 0.01)
     optimizer = optim.Adam(classifier.parameters(), lr = 0.005)
     running_loss = 0.0
 
     
-    # acc = classifier.evaluate(test_x, test_y)
-    # topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
-    # print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
+    acc = classifier.evaluate(test_x, test_y)
+    topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
+    print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
         x, y, raw = get_batch(BATCH_SIZE)
         x, y = x.to(DEVICE), y.to(DEVICE)
@@ -346,16 +367,44 @@ def train_random_forest(target = 0):
     print("Target {} -- Top-1 Acc. {:.4f}".format(target, acc))
     return acc
 
+
+def evaluate(path):
+    TEST_SIZE = 1000
+    EMB_DIM = EMB_DIM_TABLE[ARCH]
+    if(CONCAT):
+        emb_dim = EMB_DIM + POS_EMBED_DIM
+    else:
+        emb_dim = EMB_DIM
+    CLS_NUM = 4
+    classifier = Classifier(emb_dim, 0, CLS_NUM, DEVICE)
+
+    
+    classifier.load_state_dict(torch.load(PATH))
+    print("Loading Model from {} ...".format(path))
+    classifier = classifier.to(DEVICE)
+    classifier.eval() # this line is important, to deactivate the effect of the batch normalization
+    for target in range(0, 20):
+        test_x, test_y, _ = get_batch_ground_truth(target, TEST_SIZE)
+        test_x = test_x.to(DEVICE)
+        acc = classifier.evaluate(test_x, test_y)
+        topk_acc = classifier.evaluate_topk(test_x, test_y, k = 2)
+        print("TARGET INDEX {} ACC: {} TOP-2: {}".format(target, acc, topk_acc))
+        
+
+        
+
 if __name__ == '__main__':
+    TRAIN = (not ARGS.t)
     # prepare_raw_datasets()
-    # construct_datasets("gpt")
+
     # predict()
     # import sys; sys.exit()
     # acc = 1.0
-    for i in range(10):
-        for target in range(5, 6):
-        # target =ARGS.p
-            acc = train_attacker(target)
-        # acc *= train_random_forest(target)
-    print("Restore 20-length gene Acc.: {}".format(acc))
+    
+    PATH = "checkpoints/genome_{}_{}.cpt".format(ARGS.save_p, ARCH)
+    if(TRAIN):
+        acc = train_attacker(0, PATH)
+    else:
+        # construct_datasets("gpt-2")
+        evaluate(PATH)
 
