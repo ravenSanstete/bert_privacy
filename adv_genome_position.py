@@ -54,9 +54,10 @@ EMB_DIM_TABLE = {
     "bert": 768,
     'gpt' : 768,
     'gpt-2': 768,
-    'transform-xl': 1024,
+    'transformer-xl': 1024,
     'xlnet': 768,
-    'xlm': 1024
+    'xlm': 1024,
+    'roberta': 768
     }
 INTERVAL_LEN = 1
 
@@ -405,6 +406,6 @@ if __name__ == '__main__':
     if(TRAIN):
         acc = train_attacker(0, PATH)
     else:
-        # construct_datasets("gpt-2")
+        construct_datasets(ARCH)
         evaluate(PATH)
 

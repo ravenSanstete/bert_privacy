@@ -41,6 +41,9 @@ class LMServer(object):
     def __init__(self, name, chunck_size = 64, max_length = 100, device = torch.device('cuda:0')):
         super(LMServer, self).__init__()
         self.chunck_size = chunck_size
+        if(name == 'transformer-xl'):
+            self.chunck_size = 16
+        self.name = name
         self.tokenizer = MODELS[name][1].from_pretrained(MODELS[name][2])
         self.max_length = max_length
         # load the model
@@ -52,6 +55,7 @@ class LMServer(object):
         self.model.to(self.device)
         self.port = ARGS.p
         self.addr = "tcp://*:"+ str(self.port)
+        
         # start the server
 
 
@@ -81,7 +85,7 @@ class LMServer(object):
     def encode(self, sents):
         batches = []
         for b in range(0, len(sents), self.chunck_size):
-            tokens = [self.tokenizer.encode(x)[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
+            tokens = [self.tokenizer.encode(x, add_special_tokens = (self.name == 'roberta'))[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
             tokens = torch.tensor(zero_padding(tokens)).transpose(0, 1) # padding and into tensors
             batches.append(tokens)
             # print(tokens)
