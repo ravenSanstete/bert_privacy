@@ -152,7 +152,7 @@ def main():
     MAX_ITER = 100000
     CACHED = ARGS.c
     PRINT_FREQ = 1000
-    DEVICE = torch.device('cuda:1')
+    DEVICE = torch.device('cuda:0')
     TEST_SIZE = 1000
     HIDDEN_DIM = HIDDEN_DIM_TABLE[INFER_PART]
     CLS_NUM = CLS_NUM_TABLE[INFER_PART]
@@ -205,8 +205,8 @@ if __name__ == '__main__':
         parts = ["year", "month", "date"]
         PATH = "{}_{}_cracker.cpt"
         crackers = []
-        DEVICE = torch.device('cuda:1')
-        TEST_SIZE = 100
+        DEVICE = torch.device('cuda:0')
+        TEST_SIZE = 1000
         # DEMO_SIZE = 4
         
         K = 5
