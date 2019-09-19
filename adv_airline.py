@@ -14,9 +14,9 @@ from tools import balance
 from tqdm import tqdm
 from DANN import DANN
 
-ARCH = "xlm"
+ARCH = "doc2vec"
 CLS_NUM = 10
-VERBOSE = False
+VERBOSE = True
 IS_BALANCED = True
 GROUND_TRUTH = False
 KEY = 'Hong Kong'
@@ -25,9 +25,9 @@ KEY = 'Hong Kong'
 SVM_KERNEL = 'linear'
 
 # DANN
-USE_DANN = True
-DANN_BATCH_SIZE = 20
-DANN_HIDDEN = 50
+USE_DANN = False
+DANN_BATCH_SIZE = 32
+DANN_HIDDEN = 64
 DANN_LAMBDA = 1.0
 DANN_MAXITER = 4000
 
@@ -45,8 +45,8 @@ TEST_SIZE = 1000
 best_acc = 0.0
 K = 5
 
-# file path
-PART = 'yelp_part'
+# file pathk
+PART = 'EX_part'
 PATH = "/DATACENTER/data/pxd/bert_privacy/data/skytrax-reviews-dataset"
 Wiki_DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/part/wiki/{}.{}'
 
@@ -299,7 +299,7 @@ def train_atk_classifier(key, size=110, verbose=VERBOSE):
     for i in [0, 1]:
         f = open(DS_PATH.format(key, i) + '.txt', 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
-        embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH)
+        embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH, key = key)
         embs = embs[np.random.choice(len(embs), size, replace=False), :]
         X_train.append(embs)
         Y_train.extend([i] * embs.shape[0])
@@ -361,7 +361,7 @@ def use_DANN(key):
     for i in [0, 1]:
         f = open(DS_PATH.format(key, i) + '.txt', 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
-        embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH)
+        embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH, key)
         embs = embs[np.random.choice(len(embs), 110, replace=False), :]
         X_train.append(embs)
         Y_train.extend([i] * embs.shape[0])

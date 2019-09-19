@@ -4,12 +4,13 @@ from gpt2_service import GPT2Client
 from xl_service import XLClient
 from xlnet_service import XLNetClient
 from xlm_service import XLMClient
+from doc2vec_service import DOC2VECClient
 import numpy as np
 from pathlib import Path
 
 
 
-def embedding(sents, name, arch, cached = True):
+def embedding(sents, name, arch, cached = True, key = 'Paris'):
     file_name = name + '.' + arch +'.npy'
     if(Path(file_name).exists() and cached):
         return np.load(file_name)
@@ -26,9 +27,13 @@ def embedding(sents, name, arch, cached = True):
             bc = XLNetClient()
         elif (arch == 'xlm'):
             bc = XLMClient()
+        elif (arch == 'doc2vec'):
+            print('************key is {}************'.format(key))
+            bc = DOC2VECClient(key = key, IS_TEST = ('test' in name))
         elif (arch == 'ernie2' or arch == 'ernie2_large'):
             embs = np.load(file_name)
             return embs
+
         embs = bc.encode(sents)
         np.save(file_name, embs)
         return embs
@@ -44,6 +49,9 @@ if __name__ == '__main__':
 
 
     # bc = BertClient()
-    bc = XLNetClient()
-    print('suc')
+    to = np.load('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/EMB/bert/train.Hong Kong.0.bert.npy')
+    print(to[0].shape)
+    to = np.load('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/EMB/doc2vec/train.Hong Kong.0.doc2vec.npy')
+    print(to.shape)
+
 
