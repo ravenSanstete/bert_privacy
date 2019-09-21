@@ -13,6 +13,8 @@ import random
 from tqdm import tqdm
 from pathlib import Path
 
+TOTAL_LEN = 20
+
 def explate(seq):
     out = ""
     for c in seq:
@@ -34,8 +36,10 @@ def _extract_genomes(path):
     for i in range(4): next(f)
     for line in f:
         line = line.split(' ')
-        out.append(line[-1][:-1])
-    return out    
+        out.append(line[-1][:TOTAL_LEN])
+    return out
+
+
 def prepare_raw_datasets():
     TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
     F_PATH_PAT = "data/acceptor_hs3d/IE_false.seq.00{}"
@@ -100,12 +104,12 @@ TABLE = {
     }
 REVERSE_TABLE  = ["A", "G", "C", "T"]
 EMB_DIM_TABLE = {
-    "bert": 1024
+    "bert": 1024,
+    'gpt' : 768
     }
 INTERVAL_LEN = 1
 
-TOTAL_LEN = 140
-ARCH = 'bert'
+ARCH = 'gpt'
 
 def seq2id(s):
     val = 0
@@ -211,7 +215,7 @@ def train_attacker(target = 0):
     DEVICE = torch.device('cuda:1')
     TEST_SIZE = 1000
     HIDDEN_DIM = 25
-    BATCH_SIZE = 64 # 128 #64
+    BATCH_SIZE = 256 # 128 #64
 
     EMB_DIM = EMB_DIM_TABLE[ARCH]
     PATH = "{}-{}_cracker.cpt".format(TARGET, TARGET + INTERVAL_LEN)
@@ -253,7 +257,7 @@ def train_attacker(target = 0):
     
 if __name__ == '__main__':
     # prepare_raw_datasets()
-    # construct_datasets("bert")
+    construct_datasets("gpt")
     # predict()
     acc = 0.995
     for target in range(2, 20):

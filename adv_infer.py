@@ -7,8 +7,20 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import GRU, Embedding, Linear
-from util import embedding
+from util import Embedder
 from tqdm import tqdm
+
+import argparse
+parser = argparse.ArgumentParser(description='ID Attack')
+parser.add_argument("-p", type=int, default= 5555, help = 'the comm port the client will use')
+parser.add_argument("-a", type=str, default='bert', help = 'targeted architecture')
+parser.add_argument("-t", action='store_true', help = "to switch between training or testing")
+parser.add_argument("-m", type=str, default='date', help = 'targeted part to attack')
+parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
+ARGS = parser.parse_args()
+
+
+
 
 def load_state_code(path = 'state.txt'):
     f = open(path, 'r')
@@ -21,7 +33,7 @@ STATE_CODE = load_state_code()
 
 
 NUM = [str(i) for i in range(10)]
-INFER_PART = "date"
+INFER_PART = ARGS.m
 
 HIDDEN_DIM_TABLE = {
     "month": 25,
@@ -29,12 +41,16 @@ HIDDEN_DIM_TABLE = {
     "year" : 400
 }
 
-ARCH = "bert"
+ARCH = ARGS.a
+
 EMB_DIM_TABLE = {
-    "bert": 1024,
-    "gpt": 768,
-    "gpt2": 768,
-    "xl": 1024
+    "bert": 768,
+    'gpt' : 768,
+    'gpt-2': 768,
+    'transformer-xl': 1024,
+    'xlnet': 768,
+    'xlm': 1024,
+    'roberta': 768
     }
 
 CLS_NUM_TABLE = {
@@ -45,6 +61,11 @@ CLS_NUM_TABLE = {
 
 
 EMB_DIM = EMB_DIM_TABLE[ARCH]
+
+
+embedder = Embedder(ARGS.p)
+embedding = embedder.embedding # export the functional port
+
 
 def gen(part = "year"):
     part_year = random.choice(NUM) + random.choice(NUM)
@@ -69,8 +90,8 @@ def gen(part = "year"):
         side_channel = int(part_year) + 1
     return whole, side_channel
 
-def get_batch(batch_size = 10, part = INFER_PART):
-    batch = [gen(INFER_PART) for i in range(batch_size)]
+def get_batch(batch_size, part):
+    batch = [gen(part) for i in range(batch_size)]
     z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
     y = [int(y)-1 for x, y in batch]
     z = torch.FloatTensor(z)
@@ -128,15 +149,15 @@ class Classifier(nn.Module):
     
 def main():
     print("INFER {}".format(INFER_PART))
-    MAX_ITER = 20000
-    CACHED = True
-    PRINT_FREQ = 100
+    MAX_ITER = 100000
+    CACHED = ARGS.c
+    PRINT_FREQ = 1000
     DEVICE = torch.device('cuda:0')
     TEST_SIZE = 1000
     HIDDEN_DIM = HIDDEN_DIM_TABLE[INFER_PART]
     CLS_NUM = CLS_NUM_TABLE[INFER_PART]
     BATCH_SIZE = 128 # 64
-    PATH = "{}_cracker.cpt".format(INFER_PART)
+    PATH = "{}_{}_cracker.cpt".format(ARCH, INFER_PART)
     best_acc = 0.0
     K = 5
     
@@ -178,34 +199,49 @@ def padding(x):
     return x
 
 if __name__ == '__main__':
-    main()
-    import sys; sys.exit()
-    parts = ["year", "month", "date"]
-    PATH = "{}_cracker.cpt"
-    crackers = []
-    DEVICE = torch.device('cuda:0')
-    DEMO_SIZE = 4
-    K = 5
-    for p in parts:
-        print("Loading {} Cracker...".format(p))
-        classifier = Classifier(EMB_DIM, HIDDEN_DIM_TABLE[p], CLS_NUM_TABLE[p], DEVICE)
-        classifier.load_state_dict(torch.load(PATH.format(p)))
-        classifier.to(DEVICE)
-        crackers.append(classifier)
-    demo_x, _, demo_plain = get_batch(DEMO_SIZE, p)
-    demo_x = demo_x.to(DEVICE)
-    cracked = [cls.predict_topk(demo_x,k= K) for cls in crackers]
-    demo_x = demo_x.cpu().numpy()
-    for i, text in enumerate(demo_plain):
-        print("============================ SAMPLE {} ===========================".format(i+1))
-        print("Original ID: {}".format(text))
-        print("Embedding: {}".format(demo_x[i, :]))
-        year = [("19" + padding(str(x))) for x in cracked[0][i, :]]
-        print("Top-{} Year: {}".format(K, year))
-        print("Top-{} Month: {}".format(K, [padding(str(x)) for x in (cracked[1][i, :] + 1)]))
-        print("Top-{} Date: {}".format(K,  [padding(str(x)) for x in (cracked[2][i, :] + 1)]))
+    if(not ARGS.t):
+        main()
+    else:
+        parts = ["year", "month", "date"]
+        PATH = "{}_{}_cracker.cpt"
+        crackers = []
+        DEVICE = torch.device('cuda:0')
+        TEST_SIZE = 1000
+        # DEMO_SIZE = 4
+        
+        K = 5
+        for p in parts:
+            path = PATH.format(ARCH, p)
+            print("Loading {} Cracker...".format(path))
+            classifier = Classifier(EMB_DIM, HIDDEN_DIM_TABLE[p], CLS_NUM_TABLE[p], DEVICE)
+            
+            classifier.load_state_dict(torch.load(path))
+            classifier.to(DEVICE)
+            test_x, test_y, _ = get_batch(TEST_SIZE, p)
+            # print(test_y)
+            test_x = test_x.to(DEVICE)
+            acc = classifier.evaluate(test_x, test_y)
+            topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
+            print("Arch: {} Part: {} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(ARCH, p, acc, K, topk_acc))
+            
+            
+            # crackers.append(classifier)
         
         
+        # demo_x, _, demo_plain = get_batch(DEMO_SIZE, p)
+        # demo_x = demo_x.to(DEVICE)
+        # cracked = [cls.predict_topk(demo_x,k= K) for cls in crackers]
+        # demo_x = demo_x.cpu().numpy()
+        # for i, text in enumerate(demo_plain):
+        #     print("============================ SAMPLE {} ===========================".format(i+1))
+        #     print("Original ID: {}".format(text))
+        #     print("Embedding: {}".format(demo_x[i, :]))
+        #     year = [("19" + padding(str(x))) for x in cracked[0][i, :]]
+        #     print("Top-{} Year: {}".format(K, year))
+        #     print("Top-{} Month: {}".format(K, [padding(str(x)) for x in (cracked[1][i, :] + 1)]))
+        #     print("Top-{} Date: {}".format(K,  [padding(str(x)) for x in (cracked[2][i, :] + 1)]))
+
+
     
         
         

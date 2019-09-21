@@ -9,17 +9,19 @@ from client import LMClient
 
 
 
+class Embedder(object):
+    def __init__(self, port = 5555):
+        self.port = port
 
-def embedding(sents, name, arch, cached = True, is_tokenized = False, do_defense = False, defense = None):
-    file_name = name + '.' + arch +'.npy'
-    
-    if(cached and Path(file_name).exists()):
-        embs = np.load(file_name)
-    else:
-        client = LMClient(arch)
-        embs = client.encode(sents)
-        np.save(file_name, embs)
-    return embs
+    def embedding(self, sents, name, arch, cached = True, is_tokenized = False):
+        file_name = name + '.' + arch +'.npy'
+        if(cached and Path(file_name).exists()):
+            return np.load(file_name)
+        else:
+            client = LMClient(arch, port = self.port)
+            embs = client.encode(sents)
+            np.save(file_name, embs)
+            return embs
 
 
 def embedding_bk(sents, name, arch, cached = True, is_tokenized = False):
