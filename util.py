@@ -8,18 +8,18 @@ from client import LMClient
 
 
 
-def embedding(sents, name, arch, cached = True, is_tokenized = False):
+
+
+def embedding(sents, name, arch, cached = True, is_tokenized = False, do_defense = False, defense = None):
     file_name = name + '.' + arch +'.npy'
+    
     if(cached and Path(file_name).exists()):
-        return np.load(file_name)
+        embs = np.load(file_name)
     else:
         client = LMClient(arch)
         embs = client.encode(sents)
         np.save(file_name, embs)
-        return embs
-
-
-
+    return embs
 
 
 def embedding_bk(sents, name, arch, cached = True, is_tokenized = False):
