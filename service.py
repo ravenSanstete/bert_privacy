@@ -34,15 +34,18 @@ MODELS = {'bert': (BertModel,       BertTokenizer,      'bert-base-uncased'),
 
 
 class LMServer(object):
-    def __init__(self, name, chunck_size = 64, max_length = 100, device = torch.device('cuda:0')):
+    def __init__(self, name, chunck_size = 64, max_length = 100, device = torch.device('cuda:0'), dropout = False):
         super(LMServer, self).__init__()
         self.chunck_size = chunck_size
         self.tokenizer = MODELS[name][1].from_pretrained(MODELS[name][2])
         self.max_length = max_length
         # load the model
         self.model = MODELS[name][0].from_pretrained(MODELS[name][2])
-        
-        self.model.eval()
+
+        if(not dropout):
+            self.model.eval()
+        else:
+            self.model.train() # switch the model into the training mode, where the activation can be stoatistically prunned.
         self.device = device
         # move model to device
         self.model.to(self.device)
