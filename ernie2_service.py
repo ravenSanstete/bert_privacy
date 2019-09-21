@@ -19,7 +19,7 @@ cls_names = {
 
 
 ERNIE_PATH = '/home/mlsnrs/data/data/pxd/ERNIE/'
-DATA_PATH = '/home/mlsnrs/data/data/pxd/bert_privacy/data/part/'
+DATA_PATH = '/home/mlsnrs/data/data/pxd/bert_privacy/data/part_fake_5/'
 
 
 
@@ -36,8 +36,8 @@ def prepare_tsv(inpath, outpath):
         
 def ERNIE2Client(sents = None):
     use_cuda = 'true'
-    batch_size = '1'
-    output_file_name = "test.ernie2.npy"
+    batch_size = '64'
+    output_file_name = "ernie_out"
     data_set = DATA_PATH + "hand.1.txt"
 
 
@@ -60,6 +60,7 @@ def ERNIE2Client(sents = None):
     --ernie_config_path '{}'".format(ERNIE_PATH, use_cuda, batch_size, output_file_name, init_pretraining_params,
                                      data_set, vocab_path, max_seq_len, ernie_config_path)
     os.system(cmd)
+    emb_name = 'cls_emb.npy'
 
 
 if __name__ == "__main__":
