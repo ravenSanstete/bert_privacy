@@ -15,28 +15,35 @@ import pickle
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', help='the architecture your would like to use', type = str, default = 'bert')
+parser.add_argument('-p', help='port', type = int, default = 5555)
 ARGS = parser.parse_args()
 
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
 logging.basicConfig(level=logging.INFO)
+
+
+PREFIX = ''#'/home/mlsnrs/data/pxd/lms/'
 # PyTorch-Transformers has a unified API
 # for 7 transformer architectures and 30 pretrained weights.
 #          Model          | Tokenizer          | Pretrained weights shortcut
-MODELS = {'bert': (BertModel,       BertTokenizer,      'bert-base-uncased'),
-          'gpt': (OpenAIGPTModel,  OpenAIGPTTokenizer, 'openai-gpt'),
-          'gpt-2': (GPT2Model,       GPT2Tokenizer,      'gpt2'),
-          'transformer-xl': (TransfoXLModel,  TransfoXLTokenizer, 'transfo-xl-wt103'),
-          'xlnet': (XLNetModel,      XLNetTokenizer,     'xlnet-base-cased'),
-          'xlm': (XLMModel,        XLMTokenizer,       'xlm-mlm-enfr-1024'),
-          'roberta': (RobertaModel,    RobertaTokenizer,   'roberta-base')}
+MODELS = {'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-uncased'),
+          'gpt': (OpenAIGPTModel,  OpenAIGPTTokenizer, PREFIX + 'openai-gpt'),
+          'gpt2': (GPT2Model,       GPT2Tokenizer,      PREFIX + 'gpt2'),
+          'transformer-xl': (TransfoXLModel,  TransfoXLTokenizer, PREFIX + 'transfo-xl-wt103'),
+          'xlnet': (XLNetModel,      XLNetTokenizer,    PREFIX+ 'xlnet-base-cased'),
+          'xlm': (XLMModel,        XLMTokenizer,       PREFIX+'xlm-mlm-enfr-1024'),
+          'roberta': (RobertaModel,    RobertaTokenizer,  PREFIX+ 'roberta-base')}
 
 
 class LMServer(object):
     def __init__(self, name, chunck_size = 64, max_length = 100, device = torch.device('cuda:0')):
         super(LMServer, self).__init__()
         self.chunck_size = chunck_size
+        if(name == 'transformer-xl'):
+            self.chunck_size = 16
+        self.name = name
         self.tokenizer = MODELS[name][1].from_pretrained(MODELS[name][2])
         self.max_length = max_length
         # load the model
@@ -46,8 +53,9 @@ class LMServer(object):
         self.device = device
         # move model to device
         self.model.to(self.device)
-        self.port = 5555
+        self.port = ARGS.p
         self.addr = "tcp://*:"+ str(self.port)
+        
         # start the server
 
 
@@ -77,7 +85,7 @@ class LMServer(object):
     def encode(self, sents):
         batches = []
         for b in range(0, len(sents), self.chunck_size):
-            tokens = [self.tokenizer.encode(x)[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
+            tokens = [self.tokenizer.encode(x, add_special_tokens = (self.name == 'roberta'))[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
             tokens = torch.tensor(zero_padding(tokens)).transpose(0, 1) # padding and into tensors
             batches.append(tokens)
             # print(tokens)
@@ -87,7 +95,7 @@ class LMServer(object):
         out = []
         with torch.no_grad():
             counter = 0
-            for batch in tqdm(batches):
+            for batch in (batches):
                 batch = batch.to(self.device)
                 hidden_states = self.model(batch)[0]
                 out.append(hidden_states[:, -1, :].to(cpu).numpy())
@@ -102,6 +110,5 @@ if __name__ == '__main__':
     #     client = LMClient(key, chunck_size = 64)
     #     embs = client.encode(test_sents)
     #     print(embs.shape)
-
     server = LMServer(name = ARGS.name)
     server.start()

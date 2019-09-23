@@ -11,9 +11,10 @@ from pytorch_revgrad import RevGrad
 import random
 from tqdm import tqdm
 
+
 class DANN(nn.Module):
     
-    def __init__(self, learning_rate=0.05, cls_num = 2, domain_num = 2, input_size = 768, hidden_layer_size=25, lambda_adapt=1., maxiter=5000,  verbose=False, batch_size = 64, use_cuda = True, name = None):
+    def __init__(self, learning_rate=0.05, cls_num = 2, domain_num = 2, input_size = 768, hidden_layer_size=25, lambda_adapt=1., maxiter=5000,  verbose=False, batch_size = 64, use_cuda = True, name = None, cached = False, cpt_path = ''):
         """
         Domain Adversarial Neural Network for classification
         
@@ -48,6 +49,8 @@ class DANN(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), lr = 0.005)
         self.print_freq = 100
         self.name = name
+        self.cached = cached
+        self.checkpoint_path = cpt_path
         
 
     def forward(self, x):
@@ -59,16 +62,23 @@ class DANN(nn.Module):
         x = torch.sigmoid(self.feature_extractor(x))
         return x
 
-    def predict(self, x):
-        outputs = self(torch.FloatTensor(x))
+    def predict_(self, x):
+        # outputs = self(torch.FloatTensor(x))
+        x = torch.FloatTensor(x)
+        outputs = self(x)
         _, predicted = torch.max(outputs.data, 1)
         return predicted.cpu().numpy()
     
     def _predict(self, x):
         outputs = self(x.cuda())
         _, predicted = torch.max(outputs.data, 1)
-        return predicted.cpu().numpy()    
-        
+        return predicted.cpu().numpy()
+
+    def predict(self, x):
+        x = torch.FloatTensor(x)
+        outputs = self(x.cuda())
+        _, predicted = torch.max(outputs.data, 1)
+        return predicted.cpu().numpy()
 
     def _predict_domain(self, x):
         outputs = self._hidden_representation(x)
@@ -115,6 +125,18 @@ class DANN(nn.Module):
               (X_valid, Y_valid) : validation set used for early stopping.
               do_random_init : A boolean indicating whether to use random initialization or not.
         """
+        if (self.cached and os.path.exists(self.checkpoint_path)):
+            # print("Loading Model...")
+            self.load_state_dict(torch.load(self.checkpoint_path))
+            preds = self.predict_(X)
+            correct = np.sum(preds == Y)
+            correct = correct / len(Y)
+            print("Source Domain batch Acc.: {:.4f}".format(correct))
+
+            if(self.use_cuda):
+                self.cuda()
+            return correct
+
         X, X_adapt = torch.FloatTensor(X), torch.FloatTensor(X_adapt)
         X_valid = torch.FloatTensor(X_valid)
         Y_cpu = Y.copy()
@@ -133,7 +155,7 @@ class DANN(nn.Module):
         running_loss = 0.0
         running_ld = 0.0
         running_ly = 0.0
-        for i in (range(self.maxiter)):
+        for i in tqdm(range(self.maxiter)):
             for x, y in clf_loader:
                 self.optimizer.zero_grad()
                 domain_x, = random.choice(domain_loader)
@@ -161,8 +183,10 @@ class DANN(nn.Module):
                     print("Source Domain Acc.: {:.4f}".format(self.validate(X, Y_cpu)))
                     print("Target Domain Acc.: {:.4f}".format(target_acc))
                     print("Domain Clf Acc.: {:.4f}".format(self.validate_domain(X, X_adapt, )))
-                best_acc = max(best_acc, target_acc)
-        print("INFER {} ACC. {:.4f}".format(self.name, best_acc))
+                if (target_acc >= best_acc):
+                    best_acc = target_acc
+                    torch.save(self.state_dict(), self.checkpoint_path)
+        print("INFER {} Best ACC in Valid Dataset. {:.4f}".format(self.name, best_acc))
         return best_acc
                 
                     
