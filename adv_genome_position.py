@@ -1,7 +1,7 @@
 ## the attack on the genome data
 from util import Embedder
 import numpy as np
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 from sklearn import linear_model
 import torch
 import torch.utils.data as data_utils
@@ -21,6 +21,7 @@ from scipy.spatial.distance import pdist
 from scipy.spatial import cKDTree
 from sklearn.manifold import MDS
 from numpy import linalg as LA
+from defense import initialize_defense
 
 
 import matplotlib
@@ -57,7 +58,8 @@ EMB_DIM_TABLE = {
     'transformer-xl': 1024,
     'xlnet': 768,
     'xlm': 1024,
-    'roberta': 768
+    'roberta': 768,
+    'ernie': 768
     }
 INTERVAL_LEN = 1
 
@@ -97,6 +99,13 @@ def _extract_genomes(path):
         out.append(line[-1][:TOTAL_LEN])
     return out
 
+def dump(sents, path):
+    f = open(path, 'w+')
+    for sent in sents:
+        f.write(sent + '\n')
+    f.close()
+    
+
 def prepare_raw_datasets():
     TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
     F_PATH_PAT = "data/acceptor_hs3d/IE_false.seq.00{}"
@@ -110,6 +119,13 @@ def prepare_raw_datasets():
     print("# of Negative Samples: {}".format(len(false_akpt)))
     print(len(true_akpt[0]))
     print(len(false_akpt[0]))
+    # dump(true_akpt, "data/acceptor_hs3d/genome.1.txt")
+    # dump(false_akpt, "data/acceptor_hs3d/genome.0.txt")
+    return true_akpt, false_akpt
+
+def load_raw_datasets():
+    true_akpt = [s[:-1] for s in open("data/acceptor_hs3d/genome.1.txt", 'r')]
+    false_akpt = [s[:-1] for s in open("data/acceptor_hs3d/genome.0.txt", 'r')]
     return true_akpt, false_akpt
 
 def train_test_split(embs, ratio = 0.9):
@@ -120,16 +136,76 @@ def train_test_split(embs, ratio = 0.9):
 
 def construct_datasets(arch = 'bert'):
     embedding_path = "data/acceptor_hs3d/IE.{}"
-    true_akpt, false_akpt = prepare_raw_datasets()
+    true_akpt, false_akpt = load_raw_datasets() # prepare_raw_datasets()
+    
     true_embeddings = embedding(true_akpt, embedding_path.format(1), arch, False)
     false_embeddings = embedding(false_akpt, embedding_path.format(0), arch, False)
     return
 
+
+class GenomeClassifier(nn.Module):
+    def __init__(self, embedding_size):
+        super(GenomeClassifier, self).__init__()
+        hidden_size = 200
+        self.mlp = nn.Sequential(Linear(embedding_size, hidden_size),
+                                     nn.Sigmoid(),
+                                     Linear(hidden_size, 2))
+        self.criterion = nn.CrossEntropyLoss()
+
+    def forward(self, x):
+        return self.mlp(x)
+    
+    def predict(self, x):
+        outputs = self(x)
+        _, preds = torch.max(outputs, 1)
+        return preds.cpu().numpy() 
+        
+    def train(self, X, Y, test_X, test_Y):
+        X = torch.FloatTensor(X)
+        Y = torch.LongTensor(Y)
+        test_X = torch.FloatTensor(test_X).cuda()
+        dataset = data_utils.TensorDataset(X, Y)
+        dataloader = data_utils.DataLoader(dataset, batch_size = 128, shuffle = True)
+        optimizer = optim.Adam(self.parameters(), lr = 0.001)
+        self.cuda()
+        running_loss = 0.0
+        PRINT_FREQ = 100
+        counter = 0
+        max_epoch = 100
+        best_acc = 0.5
+        for i in range(max_epoch):
+            for x, y in dataloader:
+                x, y = x.cuda(), y.cuda()
+                loss = self.criterion(self(x), y)
+                # print(loss)
+                running_loss += loss.data
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                counter += 1
+                if(counter % PRINT_FREQ == 0):
+                    running_loss /= PRINT_FREQ
+                    preds = self.predict(test_X)
+                    acc = np.mean(preds == test_Y)
+                    print("Iteration {}: Loss {:.4f} Acc: {:.4f}".format(counter, running_loss, acc))
+                    running_loss = 0.0
+                    if(acc > best_acc):
+                        best_acc = acc
+                        torch.save(self.state_dict(), "functional.genome.{}.cpt".format(ARCH))
+                        print("save best acc. {:.4f}".format(best_acc))
+        
+                    
+                
+        
+        
+        
+    
+
 # let us just test svm
 def predict(embedding_path = "data/acceptor_hs3d/IE.{}"):
-    arch = 'bert'
-    true_embeddings = embedding(None, embedding_path.format(1), arch)
-    false_embeddings = embedding(None, embedding_path.format(0), arch)[:len(true_embeddings)]
+    true_akpt, false_akpt = load_raw_datasets()
+    true_embeddings = embedding(true_akpt, embedding_path.format(1), ARCH)
+    false_embeddings = embedding(false_akpt, embedding_path.format(0), ARCH)[:len(true_embeddings),:]
     print(true_embeddings)
     print(false_embeddings)
     # do a train test split
@@ -140,18 +216,20 @@ def predict(embedding_path = "data/acceptor_hs3d/IE.{}"):
     print("# of test_0: {}".format(len(test_0)))
     print("# of test_1: {}".format(len(test_1)))
     # clf = linear_model.SGDClassifier(max_iter=1000, tol=1e-5, verbose = 1)
-    clf = SVC(kernel = 'linear', gamma = 'scale', verbose = True)
+    # clf = LinearSVC(verbose = 1, max_iter = 5000)
+    clf = GenomeClassifier(true_embeddings.shape[1])
     train_x = np.concatenate([train_0, train_1], axis = 0)
     test_x = np.concatenate([test_0, test_1], axis = 0)
     train_y = np.array([0] * len(train_0) + [1] * len(train_1))
     test_y = np.array([0] * len(test_0) + [1] * len(test_1))
-    clf.fit(train_x, train_y)
-    preds = clf.predict(test_x)
-    print(np.sum(preds))
-    true_p = np.mean(preds[test_y == 1])
-    false_p = np.mean(1 - preds[test_y == 1])
-    print('ACC: {:.4f} TP: {:.4f} FP: {:.4f}'.format(np.mean(preds == test_y), true_p, false_p))
-    pass
+    clf.train(train_x, train_y, test_x, test_y)
+    # clf.fit(train_x, train_y)
+    # preds = clf.predict(test_x)
+    # print(np.sum(preds))
+    # true_p = np.mean(preds[test_y == 1])
+    # false_p = np.mean(1 - preds[test_y == 1])
+    # print('ACC: {:.4f} TP: {:.4f} FP: {:.4f}'.format(np.mean(preds == test_y), true_p, false_p))
+
 
 
 
@@ -216,24 +294,37 @@ def get_batch(batch_size = 10):
     return z, y, [b[0][0] for b in batch]
 
 
-def get_batch_ground_truth(target = 0, batch_size = 10):
+def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,defense = None):
     embedding_path = "data/acceptor_hs3d/IE.{}"
-    TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
-    z = embedding(None, embedding_path.format(1), ARCH)[:batch_size, :]
+    # TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
+    y_1 = [s[:-1] for s in open("data/acceptor_hs3d/genome.1.txt", 'r')]
+    y_0 = [s[:-1] for s in open("data/acceptor_hs3d/genome.0.txt", 'r')]
+    y_1 = y_1[:batch_size]
+    y_0 = y_0[:batch_size]
+    y = y_1 + y_0
+    # print(len(y))
+    z_1 = embedding(None, embedding_path.format(1), ARCH)[:batch_size, :]
+    z_0 = embedding(None, embedding_path.format(0), ARCH)[:batch_size, :]
+    z = np.concatenate([z_1, z_0], axis = 0)
+
+    utility_y = np.array([1]*batch_size + [0]*batch_size)
+    if(use_defense):
+        z = defense(z, utility_y) # add the defense
+    raw_z = z
     ## obtain the correposnding positional embedding
-    pos_embeddings = np.array([POS_EMBEDDING[target] for i in range(batch_size)])
+    pos_embeddings = np.array([POS_EMBEDDING[target] for i in range(2*batch_size)])
     if(CONCAT):
         z = np.concatenate([z, pos_embeddings], axis = 1)
     else:
         z = z + pos_embeddings
-    y = _extract_genomes(TRUE_PATH)[:batch_size]
+    # y = _extract_genomes(TRUE_PATH)[:batch_size]
     y = [seq2id(x[target:target+INTERVAL_LEN]) for x in y]
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
-    return z, y, None
+    return z, y, utility_y, raw_z
     
 class Classifier(nn.Module):
-    def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:1')):
+    def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:0')):
         super(Classifier, self).__init__()
         self.encoder = nn.Sequential(Linear(embedding_size, 400),
                                      nn.BatchNorm1d(400),
@@ -286,7 +377,7 @@ class Classifier(nn.Module):
             acc = [int(y[i] in topk[i, :]) for i in range(len(y))]
         return np.mean(acc)
 
-DEVICE = torch.device('cuda:1')
+DEVICE = torch.device('cuda:0')
 
 def train_attacker(target = 0, path = None):
     TARGET = target
@@ -312,14 +403,14 @@ def train_attacker(target = 0, path = None):
     if(CACHED and Path(PATH).exists()):
         print("Loading Model...")
         classifier.load_state_dict(torch.load(PATH))
-    classifier = classifier.to(DEVICE)
+    classifier = classifier.cuda()
 
     if(TRUTH):
         test_x, test_y, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
     else:
         test_x, test_y, _ = get_batch(TEST_SIZE)
 
-    test_x = test_x.to(DEVICE)
+    test_x = test_x.cuda()
     # optimizer = optim.SGD(classifier.parameters(), lr = 0.01)
     optimizer = optim.Adam(classifier.parameters(), lr = 0.005)
     running_loss = 0.0
@@ -330,7 +421,7 @@ def train_attacker(target = 0, path = None):
     print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
         x, y, raw = get_batch(BATCH_SIZE)
-        x, y = x.to(DEVICE), y.to(DEVICE)
+        x, y = x.cuda(), y.cuda()
         optimizer.zero_grad()
         loss = classifier.loss(x, y)
         loss.backward()
@@ -378,18 +469,56 @@ def evaluate(path):
         emb_dim = EMB_DIM
     CLS_NUM = 4
     classifier = Classifier(emb_dim, 0, CLS_NUM, DEVICE)
+    classifier.load_state_dict(torch.load(PATH, map_location = DEVICE))
+    print("Loading Model from {} ...".format(path))
+    classifier = classifier.cuda()
+    classifier.eval() # this line is important, to deactivate the effect of the batch normalization
+    average_acc = 0.0
+    average_topk_acc =0.0
+    avg_util  = 0.0
+    protected_avg_acc = 0.0
+    protected_avg_topk_acc = 0.0
+    protected_avg_util = 0.0
 
     
-    classifier.load_state_dict(torch.load(PATH))
-    print("Loading Model from {} ...".format(path))
-    classifier = classifier.to(DEVICE)
-    classifier.eval() # this line is important, to deactivate the effect of the batch normalization
-    for target in range(0, 20):
-        test_x, test_y, _ = get_batch_ground_truth(target, TEST_SIZE)
-        test_x = test_x.to(DEVICE)
+    genome_clf = GenomeClassifier(EMB_DIM)
+    genome_clf.load_state_dict(torch.load("checkpoints/functional.genome.{}.cpt".format(ARCH), map_location = DEVICE))
+    genome_clf.cuda()
+
+    # defense = initialize_defense('rounding', decimals = 1)
+    # defense = initialize_defense('dp', delta = 12.0, eps = 20.0)
+    defense = initialize_defense('minmax', cls_num = 2, eps = 0.01)
+    for target in range(0, TOTAL_LEN):
+        test_x, test_y, test_util_y, raw_x = get_batch_ground_truth(target, TEST_SIZE)
+        # impose the defense with raw_x and the test util_y    
+        test_x = test_x.cuda()
         acc = classifier.evaluate(test_x, test_y)
         topk_acc = classifier.evaluate_topk(test_x, test_y, k = 2)
-        print("TARGET INDEX {} ACC: {} TOP-2: {}".format(target, acc, topk_acc))
+        average_acc += acc
+        average_topk_acc += topk_acc
+        raw_x = torch.FloatTensor(raw_x).cuda()
+        preds = genome_clf.predict(raw_x)
+        util_acc = np.mean(preds == test_util_y)
+        avg_util += util_acc
+        
+        
+        protected_test_x, _, _, protected_raw_x = get_batch_ground_truth(target, TEST_SIZE, True, defense)
+        protected_test_x = torch.FloatTensor(protected_test_x).cuda()
+        protected_acc = classifier.evaluate(protected_test_x, test_y)
+        protected_topk_acc = classifier.evaluate_topk(protected_test_x, test_y, k = 2)
+        protected_avg_acc += protected_acc
+        protected_avg_topk_acc += protected_topk_acc
+        protected_raw_x = torch.FloatTensor(protected_raw_x).cuda()
+        preds = genome_clf.predict(protected_raw_x)
+        protected_util_acc = np.mean(preds == test_util_y)
+        protected_avg_util += protected_util_acc
+        
+        
+        print("Util Acc: {:.4f} Protected Util Acc.: {:.4f} TARGET INDEX {} ACC: {:.4f} TOP-2: {:.4f} Protected: {:.4f} Protected Top-2: {:.4f}".format(util_acc, protected_util_acc, target, acc, topk_acc, protected_acc, protected_topk_acc))
+    print("Average Acc: {:.4f} Average Top-2 Acc.: {:.4f} Avergage Util: {:.4f} Protected: {:.4f} {:.4f} {:.4f}".format(average_acc/TOTAL_LEN, average_topk_acc/TOTAL_LEN, avg_util/TOTAL_LEN, protected_avg_acc/TOTAL_LEN, protected_avg_topk_acc/TOTAL_LEN, protected_avg_util/TOTAL_LEN))
+
+    
+    
         
 
         
@@ -402,10 +531,18 @@ if __name__ == '__main__':
     # import sys; sys.exit()
     # acc = 1.0
     
+    # prepare_raw_datasets()
+    # predict()
+    # import sys; sys.exit()
+    
     PATH = "checkpoints/genome_{}_{}.cpt".format(ARGS.save_p, ARCH)
     if(TRAIN):
         acc = train_attacker(0, PATH)
     else:
-        construct_datasets(ARCH)
+        # construct_datasets(ARCH)
         evaluate(PATH)
+
+
+    
+        
 

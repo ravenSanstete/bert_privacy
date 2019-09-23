@@ -24,7 +24,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 
-PREFIX = '/home/mlsnrs/data/pxd/lms/'
+# PREFIX = '/home/mlsnrs/data/pxd/lms/'
+PREFIX = ''
 # PyTorch-Transformers has a unified API
 # for 7 transformer architectures and 30 pretrained weights.
 #          Model          | Tokenizer          | Pretrained weights shortcut
@@ -42,7 +43,7 @@ class LMServer(object):
         super(LMServer, self).__init__()
         self.chunck_size = chunck_size
         if(name == 'transformer-xl'):
-            self.chunck_size = 16
+            self.chunck_size = 64
         self.name = name
         self.tokenizer = MODELS[name][1].from_pretrained(MODELS[name][2])
         self.max_length = max_length

@@ -10,8 +10,21 @@ import torch.utils.data as data_utils
 from tqdm import tqdm
 
 
-def initialize_defense(name = ''):
-    return
+def initialize_defense(name, **kwargs):
+    if(name == 'rounding'):
+        def _rounding(X, Y):
+            return rounding(X, Y, **kwargs)
+        return _rounding
+    elif(name == 'dp'):
+        def _dp(X, Y):
+            return laplace_mechanism(X, Y, **kwargs)
+        return _dp
+    elif(name == 'minmax'):
+        def _adversarial_defense(X, Y):
+            return adversarial_defense(X, Y, **kwargs)
+        return _adversarial_defense
+    
+        
 
 
 
@@ -68,6 +81,10 @@ class ActiveDefender(nn.Module):
     def forward(self, x):
         return self.ppm(x)
 
+    def transform(self, X):
+        X = torch.FloatTensor(X).cuda()
+        return self.ppm(X).detach().cpu().numpy()
+
     def pretrain_attacker_loss(self, x, y):
         criterion = nn.CrossEntropyLoss()
         return criterion(self.attacker(x), y)
@@ -81,7 +98,7 @@ class ActiveDefender(nn.Module):
 
     def defender_loss(self, x, y, eps):
         criterion = nn.CrossEntropyLoss()
-        return -criterion(self.attacker(self.ppm(x)), y) + eps * self.privacy_constraint(self(x), x)
+        return -criterion(self.attacker(self.ppm(x)), y) + (1.0 / eps) * self.privacy_constraint(self(x), x)
 
 
     def inference(self, attacker, x):
@@ -187,29 +204,11 @@ class ActiveDefender(nn.Module):
             
         
                 
-                
-        
-            
-            
-        
-                
-                
-                
-                
-                
-        
-        
-        
-    
-        
-        
-    
-
-
-
-def adversarial_defense(X, Y):
+def adversarial_defense(X, Y, **kwargs):
     # in this active defense, the defender solves a minmax game between a privacy preserving mapping and a classifer that infers the sensitive label from the embedding, while stay around the privacy constraints.
-    pass
+    defender = ActiveDefender(X.shape[1], kwargs['cls_num'])
+    defender.train(X, Y, kwargs['eps'])
+    return defender.transform(X)
 
 
 
@@ -229,8 +228,11 @@ if __name__ == '__main__':
     Y = np.array([0] * len(TEST_X_0) + [1] * len(TEST_X_1))
     embedding_dim = 768
     cls_num = 2
-    defender = ActiveDefender(embedding_dim, cls_num)
-    defender.train(X, Y, 100)
+    # defender = ActiveDefender(embedding_dim, cls_num)
+    # defender.train(X, Y, 100)
+    X_hat = adversarial_defense(X, Y, cls_num = 2, eps = 0.01)
+    print(X_hat)
+    
     
     
 

@@ -24,6 +24,9 @@ class Embedder(object):
             return embs
 
 
+
+
+
 def embedding_bk(sents, name, arch, cached = True, is_tokenized = False):
     file_name = name + '.' + arch +'.npy'
     if(cached and Path(file_name).exists()):
