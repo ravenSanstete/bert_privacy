@@ -11,7 +11,7 @@ import zmq
 import json
 from io import BytesIO
 import pickle
-
+import os 
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', help='the architecture your would like to use', type = str, default = 'bert')
@@ -24,8 +24,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 
-# PREFIX = '/home/mlsnrs/data/pxd/lms/'
-PREFIX = ''
+PREFIX = '/home/mlsnrs/data/data/pxd/lms/'
+# PREFIX = ''
 # PyTorch-Transformers has a unified API
 # for 7 transformer architectures and 30 pretrained weights.
 #          Model          | Tokenizer          | Pretrained weights shortcut
@@ -38,12 +38,18 @@ MODELS = {'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-unca
           'roberta': (RobertaModel,    RobertaTokenizer,  PREFIX+ 'roberta-base')}
 
 
+def explate(seq):
+    out = ""
+    for c in seq:
+        out = out + c + ' '
+    return out[:-1]
+
 class LMServer(object):
     def __init__(self, name, chunck_size = 64, max_length = 100, device = torch.device('cuda:0')):
         super(LMServer, self).__init__()
         self.chunck_size = chunck_size
         if(name == 'transformer-xl'):
-            self.chunck_size = 64
+            self.chunck_size = 32
         self.name = name
         self.tokenizer = MODELS[name][1].from_pretrained(MODELS[name][2])
         self.max_length = max_length
@@ -87,7 +93,9 @@ class LMServer(object):
         batches = []
         for b in range(0, len(sents), self.chunck_size):
             tokens = [self.tokenizer.encode(x, add_special_tokens = (self.name == 'roberta'))[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
+            print(tokens)
             tokens = torch.tensor(zero_padding(tokens)).transpose(0, 1) # padding and into tensors
+            
             batches.append(tokens)
             # print(tokens)
             # break
@@ -111,6 +119,8 @@ if __name__ == '__main__':
     #     client = LMClient(key, chunck_size = 64)
     #     embs = client.encode(test_sents)
     #     print(embs.shape)
-
-    server = LMServer(name = ARGS.name)
-    server.start()
+    if(ARGS.name == 'ernie'):
+        os.system("python /home/mlsnrs/data/data/pxd/ERNIE/ernie_server.py -p {}".format(ARGS.p))
+    else:
+        server = LMServer(name = ARGS.name)
+        server.start()

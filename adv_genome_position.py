@@ -36,6 +36,7 @@ parser.add_argument("-c", action='store_true', help = 'whether to use cached mod
 parser.add_argument("-t", action='store_true', help = "to switch between training or testing")
 parser.add_argument("--save_p", type=str, default="default", help = 'the place to store the model')
 parser.add_argument("-a", type=str, default='bert', help = 'targeted architecture')
+parser.add_argument("-d", type=str, default='none', help = 'the type of defense to do')
 ARGS = parser.parse_args()
 
 
@@ -73,6 +74,19 @@ POS_EMBED_DIM = EMB_DIM_TABLE[ARCH]
 
 embedder = Embedder(ARGS.p)
 embedding = embedder.embedding # export the functional port
+
+COUNTER = 0
+    
+if(ARCH == 'transformer-xl'):
+    # construct the transformer
+    batch_size = 512
+    z = torch.FloatTensor(np.load('xl.z.npy'))
+    y = torch.LongTensor(np.load('xl.y.npy'))
+    xl_dataset = data_utils.TensorDataset(z, y)
+    xl_dataloader = data_utils.DataLoader(xl_dataset, batch_size = batch_size, shuffle = True)
+    xl_dataloader = [(z, y) for z, y in xl_dataloader]
+    print(len(xl_dataloader))
+
 
 
 def explate(seq):
@@ -204,6 +218,9 @@ class GenomeClassifier(nn.Module):
 # let us just test svm
 def predict(embedding_path = "data/acceptor_hs3d/IE.{}"):
     true_akpt, false_akpt = load_raw_datasets()
+    if(ARCH == 'transformer-xl'):
+        true_akpt = [explate(x) for x in true_akpt]
+        false_akpt = [explate(x) for x in false_akpt]
     true_embeddings = embedding(true_akpt, embedding_path.format(1), ARCH)
     false_embeddings = embedding(false_akpt, embedding_path.format(0), ARCH)[:len(true_embeddings),:]
     print(true_embeddings)
@@ -267,10 +284,44 @@ PLOTTED = False
 CONCAT = True
 
 
+def generate_offline_training_data(total_number, batch_size = 64, pos_embedding = POS_EMBEDDING):
+    z = []
+    y = []
+   
+    for idx in tqdm(range(total_number // batch_size)):
+        batch = []
+        TARGETS = list(range(TOTAL_LEN))
+        for i in range(batch_size):
+            target = random.choice(TARGETS)
+            batch.append(gen(target))
+        z_ = embedding([explate(b[0][0]) for b in batch], "tmp", ARCH, cached = False)
+        y.extend([b[0][1] for b in batch])
+        pos_embeddings = np.array([pos_embedding[b[1]] for b in batch])
+        if(CONCAT):
+            z_ = np.concatenate([z_, pos_embeddings], axis = 1)
+        else:
+            z_ = z_ + pos_embeddings
+        z.append(z_)
+    z = np.concatenate(z, axis = 0)
+    y = np.array(y)
+    # save the numpy file
+    np.save(open("xl.z.npy", 'w+b'), z)
+    np.save(open("xl.y.npy", 'w+b'), y)
+    
+    return z, y
+    
+
+
 """
 Now the batch consists of (seq, id, positional_embedding)
 """
-def get_batch(batch_size = 10):
+def get_batch(batch_size = 10, is_offline = False, dataloader = None, pos_embedding = POS_EMBEDDING):
+    global COUNTER
+    if(is_offline):
+        z, y = dataloader[COUNTER]
+        COUNTER = (COUNTER+1) % len(dataloader)
+        z, y = random.choice(dataloader)
+        return z, y, None
     batch = []
     TARGETS = list(range(TOTAL_LEN))
     for i in range(batch_size):
@@ -280,7 +331,7 @@ def get_batch(batch_size = 10):
     #     target = random.choice(TARGETS)
     #     batch.append([gen(target), target])
     z = embedding([b[0][0] for b in batch], "tmp", ARCH, cached = False)
-    pos_embeddings = np.array([POS_EMBEDDING[b[1]] for b in batch])
+    pos_embeddings = np.array([pos_embedding[b[1]] for b in batch])
     if(CONCAT):
         z = np.concatenate([z, pos_embeddings], axis = 1)
     else:
@@ -294,7 +345,7 @@ def get_batch(batch_size = 10):
     return z, y, [b[0][0] for b in batch]
 
 
-def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,defense = None):
+def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,defense = None, arch = ARCH, pos_embedding = POS_EMBEDDING):
     embedding_path = "data/acceptor_hs3d/IE.{}"
     # TRUE_PATH = "data/acceptor_hs3d/IE_true.seq"
     y_1 = [s[:-1] for s in open("data/acceptor_hs3d/genome.1.txt", 'r')]
@@ -302,9 +353,13 @@ def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,def
     y_1 = y_1[:batch_size]
     y_0 = y_0[:batch_size]
     y = y_1 + y_0
+
+    if(arch == 'transformer-xl'):
+        y_0 = [explate(x) for x in y_0]
+        y_1 = [explate(x) for x in y_1]
     # print(len(y))
-    z_1 = embedding(None, embedding_path.format(1), ARCH)[:batch_size, :]
-    z_0 = embedding(None, embedding_path.format(0), ARCH)[:batch_size, :]
+    z_1 = embedding(y_1, embedding_path.format(1), arch)[:batch_size, :]
+    z_0 = embedding(y_0, embedding_path.format(0), arch)[:batch_size, :]
     z = np.concatenate([z_1, z_0], axis = 0)
 
     utility_y = np.array([1]*batch_size + [0]*batch_size)
@@ -312,7 +367,7 @@ def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,def
         z = defense(z, utility_y) # add the defense
     raw_z = z
     ## obtain the correposnding positional embedding
-    pos_embeddings = np.array([POS_EMBEDDING[target] for i in range(2*batch_size)])
+    pos_embeddings = np.array([pos_embedding[target] for i in range(2*batch_size)])
     if(CONCAT):
         z = np.concatenate([z, pos_embeddings], axis = 1)
     else:
@@ -384,13 +439,13 @@ def train_attacker(target = 0, path = None):
     CLS_NUM = 4 ** INTERVAL_LEN
     print("INFER GENE SUBSEQ [{}, {}) CLS NUMBER {}".format(TARGET, TARGET + INTERVAL_LEN, CLS_NUM))
     MAX_ITER = 100000
-    CACHED = True
+    CACHED = False
     PRINT_FREQ = 100
 
     TEST_SIZE = 1000
     HIDDEN_DIM = 200
     BATCH_SIZE = 256 # 128 #64
-    TRUTH = False
+    TRUTH = True
     EMB_DIM = EMB_DIM_TABLE[ARCH]
     PATH = path
     best_acc = 0.0
@@ -402,17 +457,19 @@ def train_attacker(target = 0, path = None):
     classifier = Classifier(emb_dim, HIDDEN_DIM, CLS_NUM, DEVICE)
     if(CACHED and Path(PATH).exists()):
         print("Loading Model...")
-        classifier.load_state_dict(torch.load(PATH))
+        classifier.load_state_dict(torch.load(PATH, map_location = DEVICE))
     classifier = classifier.cuda()
 
     if(TRUTH):
-        test_x, test_y, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
+        test_x, test_y, _, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
     else:
         test_x, test_y, _ = get_batch(TEST_SIZE)
 
+            
+
     test_x = test_x.cuda()
     # optimizer = optim.SGD(classifier.parameters(), lr = 0.01)
-    optimizer = optim.Adam(classifier.parameters(), lr = 0.005)
+    optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
     running_loss = 0.0
 
     
@@ -420,7 +477,10 @@ def train_attacker(target = 0, path = None):
     topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
     print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
-        x, y, raw = get_batch(BATCH_SIZE)
+        if(ARCH != 'transformer-xl'):
+            x, y, _ = get_batch(TEST_SIZE)
+        else:
+            x, y, _ = get_batch(TEST_SIZE, is_offline = True, dataloader = xl_dataloader)
         x, y = x.cuda(), y.cuda()
         optimizer.zero_grad()
         loss = classifier.loss(x, y)
@@ -460,16 +520,20 @@ def train_random_forest(target = 0):
     return acc
 
 
-def evaluate(path):
+def evaluate(path, arch, defense = None):
+    pos_embed_dim = EMB_DIM_TABLE[arch]
+    local_pos_embedding =  get_positional_embedding(pos_embed_dim, TOTAL_LEN)
     TEST_SIZE = 1000
-    EMB_DIM = EMB_DIM_TABLE[ARCH]
+    EMB_DIM = EMB_DIM_TABLE[arch]
+
     if(CONCAT):
-        emb_dim = EMB_DIM + POS_EMBED_DIM
+        emb_dim = EMB_DIM + pos_embed_dim
     else:
         emb_dim = EMB_DIM
+    # print(emb_dim)
     CLS_NUM = 4
     classifier = Classifier(emb_dim, 0, CLS_NUM, DEVICE)
-    classifier.load_state_dict(torch.load(PATH, map_location = DEVICE))
+    classifier.load_state_dict(torch.load(path, map_location = DEVICE))
     print("Loading Model from {} ...".format(path))
     classifier = classifier.cuda()
     classifier.eval() # this line is important, to deactivate the effect of the batch normalization
@@ -480,17 +544,28 @@ def evaluate(path):
     protected_avg_topk_acc = 0.0
     protected_avg_util = 0.0
 
+    print("Loading the Utility Model ")
+    genome_clf_path = "checkpoints/functional.genome.{}.cpt".format(arch)
     
     genome_clf = GenomeClassifier(EMB_DIM)
-    genome_clf.load_state_dict(torch.load("checkpoints/functional.genome.{}.cpt".format(ARCH), map_location = DEVICE))
+    # print(EMB_DIM)
+    
+    genome_clf.load_state_dict(torch.load(genome_clf_path, map_location = DEVICE))
     genome_clf.cuda()
 
     # defense = initialize_defense('rounding', decimals = 1)
     # defense = initialize_defense('dp', delta = 12.0, eps = 20.0)
-    defense = initialize_defense('minmax', cls_num = 2, eps = 0.01)
+    # defense = initialize_defense('minmax', cls_num = 2, eps = 0.001)
+    atk_acc_arr = []
+    protected_acc_arr = []
+    baseline_acc = []
+    
     for target in range(0, TOTAL_LEN):
-        test_x, test_y, test_util_y, raw_x = get_batch_ground_truth(target, TEST_SIZE)
-        # impose the defense with raw_x and the test util_y    
+        test_x, test_y, test_util_y, raw_x = get_batch_ground_truth(target, TEST_SIZE, arch = arch, pos_embedding = local_pos_embedding)
+        # impose the defense with raw_x and the test util_y
+        histg = np.histogram(test_y, bins = 4)
+        baseline_acc.append(max(histg[0] / np.sum(histg[0])))
+        
         test_x = test_x.cuda()
         acc = classifier.evaluate(test_x, test_y)
         topk_acc = classifier.evaluate_topk(test_x, test_y, k = 2)
@@ -501,21 +576,44 @@ def evaluate(path):
         util_acc = np.mean(preds == test_util_y)
         avg_util += util_acc
         
+        atk_acc_arr.append(acc)
+
+        if(defense):
+            protected_test_x, _, _, protected_raw_x = get_batch_ground_truth(target, TEST_SIZE, True, defense, arch = arch, pos_embedding = local_pos_embedding)
+            protected_test_x = torch.FloatTensor(protected_test_x).cuda()
+            protected_acc = classifier.evaluate(protected_test_x, test_y)
+            protected_topk_acc = classifier.evaluate_topk(protected_test_x, test_y, k = 2)
+            protected_avg_acc += protected_acc
+            protected_avg_topk_acc += protected_topk_acc
+            protected_raw_x = torch.FloatTensor(protected_raw_x).cuda()
+            preds = genome_clf.predict(protected_raw_x)
+            protected_util_acc = np.mean(preds == test_util_y)
+            protected_avg_util += protected_util_acc
+            protected_acc_arr.append(protected_acc)
         
-        protected_test_x, _, _, protected_raw_x = get_batch_ground_truth(target, TEST_SIZE, True, defense)
-        protected_test_x = torch.FloatTensor(protected_test_x).cuda()
-        protected_acc = classifier.evaluate(protected_test_x, test_y)
-        protected_topk_acc = classifier.evaluate_topk(protected_test_x, test_y, k = 2)
-        protected_avg_acc += protected_acc
-        protected_avg_topk_acc += protected_topk_acc
-        protected_raw_x = torch.FloatTensor(protected_raw_x).cuda()
-        preds = genome_clf.predict(protected_raw_x)
-        protected_util_acc = np.mean(preds == test_util_y)
-        protected_avg_util += protected_util_acc
         
-        
-        print("Util Acc: {:.4f} Protected Util Acc.: {:.4f} TARGET INDEX {} ACC: {:.4f} TOP-2: {:.4f} Protected: {:.4f} Protected Top-2: {:.4f}".format(util_acc, protected_util_acc, target, acc, topk_acc, protected_acc, protected_topk_acc))
-    print("Average Acc: {:.4f} Average Top-2 Acc.: {:.4f} Avergage Util: {:.4f} Protected: {:.4f} {:.4f} {:.4f}".format(average_acc/TOTAL_LEN, average_topk_acc/TOTAL_LEN, avg_util/TOTAL_LEN, protected_avg_acc/TOTAL_LEN, protected_avg_topk_acc/TOTAL_LEN, protected_avg_util/TOTAL_LEN))
+        # print("Util Acc: {:.4f} Protected Util Acc.: {:.4f} TARGET INDEX {} ACC: {:.4f} TOP-2: {:.4f} Protected: {:.4f} Protected Top-2: {:.4f}".format(util_acc, protected_util_acc, target, acc, topk_acc, protected_acc, protected_topk_acc))
+    # print("Average Acc: {:.4f} Average Top-2 Acc.: {:.4f} Avergage Util: {:.4f} Protected: {:.4f} {:.4f} {:.4f}".format(average_acc/TOTAL_LEN, average_topk_acc/TOTAL_LEN, avg_util/TOTAL_LEN, protected_avg_acc/TOTAL_LEN, protected_avg_topk_acc/TOTAL_LEN, protected_avg_util/TOTAL_LEN))
+
+    """
+    # THE ADV. Utility
+    # print(atk_acc_arr)
+    # print(average_acc /  TOTAL_LEN)
+    # print(average_topk_acc / TOTAL_LEN)
+    """
+    protected_avg_acc  /= TOTAL_LEN
+    avg_util /= TOTAL_LEN
+    protected_avg_util /= TOTAL_LEN
+
+    
+    print(avg_util)
+    print(protected_avg_util)
+    print(protected_acc_arr)
+    print(protected_avg_acc)
+    # for 
+    # print(baseline_acc)
+    # print()
+    return [avg_util, protected_avg_util] # protected_acc_arr
 
     
     
@@ -524,8 +622,24 @@ def evaluate(path):
         
 
 if __name__ == '__main__':
+    # predict()
+    # import sys; sys.exit()
     TRAIN = (not ARGS.t)
+    DEFENSE = ARGS.d
+    TEST_ARCHS = ["bert", "gpt", "gpt-2", "xlm", "xlnet", "roberta", "transformer-xl", "ernie"]
+    # TEST_ARCHS = ["transformer-xl"]
     # prepare_raw_datasets()
+    DELTA_TABLE = {
+    "bert": 81.82,
+    'gpt' : 73.19,
+    'gpt-2': 110.2,
+    'transformer-xl': 17.09,
+    'xlnet': 601.5,
+    'xlm': 219.4,
+    'roberta': 4.15,
+    'ernie': 28.20        
+    }
+    
 
     # predict()
     # import sys; sys.exit()
@@ -534,13 +648,65 @@ if __name__ == '__main__':
     # prepare_raw_datasets()
     # predict()
     # import sys; sys.exit()
-    
+    TEMPLATE = "checkpoints/genome_{}_{}.cpt"
     PATH = "checkpoints/genome_{}_{}.cpt".format(ARGS.save_p, ARCH)
     if(TRAIN):
+        # generate_offline_training_data(102400)
         acc = train_attacker(0, PATH)
-    else:
+    elif(DEFENSE != 'none'):
         # construct_datasets(ARCH)
-        evaluate(PATH)
+        defenses = []
+        if(DEFENSE == 'rounding'):
+            for i in range(10):
+                defenses.append((i, "rounding to {} decimals".format(i), initialize_defense('rounding', decimals = i)))
+            RESULTS = []
+            for param, descript, _def in defenses:
+                RESULT = dict()
+                for arch in TEST_ARCHS:
+                    print("EVALUATE {} With Defense {}".format(arch, descript))
+                    RESULT[arch] = evaluate(TEMPLATE.format(ARGS.save_p, arch), arch, _def)
+                    # RESULT.append()
+                RESULTS.append((param, RESULT))
+            print(RESULTS)         
+        elif(DEFENSE == 'dp'):
+            eps_list = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
+            RESULTS = [dict() for _ in eps_list]
+            for i, arch in enumerate(TEST_ARCHS):
+                defenses = []
+                for eps in eps_list:
+                    defenses.append((eps, "laplace with eps {}".format(eps), initialize_defense("dp", delta = DELTA_TABLE[arch], eps = eps)))
+                for j, defense in enumerate(defenses):
+                    param, descript, _def = defense
+                    print("Evaluate {} with Defense {}".format(arch, descript))
+                    RESULTS[j][arch] = evaluate(TEMPLATE.format(ARGS.save_p, arch), arch, _def)
+            RESULTS = [(eps_list[i], RESULTS[i]) for i in range(len(RESULTS))]
+            print(RESULTS)
+        elif(DEFENSE == 'minmax'):
+            eps_list = [0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 100.0]
+            RESULTS = [dict() for _ in eps_list]
+            # defenses = []
+            for i, arch in enumerate(TEST_ARCHS):
+                defenses = []
+                for eps in eps_list:
+                    defenses.append((eps, "minmax with eps {}".format(eps), initialize_defense("minmax", cls_num = 4, eps = eps)))
+                for j, defense in enumerate(defenses):
+                    param, descript, _def = defense
+                    print("Evaluate {} with Defense {}".format(arch, descript))
+                    RESULTS[j][arch] = evaluate(TEMPLATE.format(ARGS.save_p, arch), arch, _def)
+            RESULTS = [(eps_list[i], RESULTS[i]) for i in range(len(RESULTS))]
+            print(RESULTS)
+                
+            
+            
+    else:
+        evaluate(TEMPLATE.format(ARGS.save_p, ARGS.a), ARGS.a)
+        
+        # evaluate(PATH)
+
+    # z, y = generate_offline_training_data(1024 * 100)
+
+    # print(z.shape)
+    # print(y.shape)
 
 
     

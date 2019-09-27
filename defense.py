@@ -110,7 +110,7 @@ class ActiveDefender(nn.Module):
         critical_step = 10
         pretrain_atk_epoch = 5
         pretrain_def_epoch = 5
-        adversarial_epoch = 20
+        adversarial_epoch = 50
         batch_size = 64
         Y_numpy = Y
         X = torch.FloatTensor(X)
