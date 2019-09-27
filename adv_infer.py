@@ -52,7 +52,7 @@ EMB_DIM_TABLE = {
     'xlm': 1024,
     'roberta': 768,
     'ernie': 768
-    }
+}
 
 CLS_NUM_TABLE = {
     "month": 12,

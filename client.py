@@ -9,7 +9,7 @@ import pickle
 
 
 class LMClient(object):
-    def __init__(self, name = None, port = 5005):
+    def __init__(self, name = None, port = 5431):
         self.name = name
         context = zmq.Context()
         #  Socket to talk to server
@@ -32,10 +32,10 @@ class LMClient(object):
 if __name__ == '__main__':
     test_sents = list(open('data/medical.test.txt', 'r'))
     # test_sents = list(open('data/part_fake_5/ankle.0.txt', 'r'))
-    test_sents = test_sents[:100]
+    test_sents = test_sents[:1]
 
     client = LMClient()
     for request in range(10):
-        embs = client.encode(test_sents)
+        embs = client.encode(['[CLS]'])
         print(embs.shape)
 

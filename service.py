@@ -91,9 +91,10 @@ class LMServer(object):
     # given the sentences, return the embeddings
     def encode(self, sents):
         batches = []
+        # print(sents)
         for b in range(0, len(sents), self.chunck_size):
-            tokens = [self.tokenizer.encode(x, add_special_tokens = (self.name == 'roberta'))[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
-            print(tokens)
+            tokens = [self.tokenizer.encode(x, add_special_tokens = True)[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
+             #print(tokens)
             tokens = torch.tensor(zero_padding(tokens)).transpose(0, 1) # padding and into tensors
             
             batches.append(tokens)

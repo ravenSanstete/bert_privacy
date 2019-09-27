@@ -76,12 +76,14 @@ embedder = Embedder(ARGS.p)
 embedding = embedder.embedding # export the functional port
 
 COUNTER = 0
-    
-if(ARCH == 'transformer-xl'):
+
+offline_archs = ['transformer-xl']
+
+if(ARCH in offline_archs):
     # construct the transformer
     batch_size = 512
-    z = torch.FloatTensor(np.load('xl.z.npy'))
-    y = torch.LongTensor(np.load('xl.y.npy'))
+    z = torch.FloatTensor(np.load('{}.z.npy'.format(ARCH)))
+    y = torch.LongTensor(np.load('{}.y.npy'.format(ARCH)))
     xl_dataset = data_utils.TensorDataset(z, y)
     xl_dataloader = data_utils.DataLoader(xl_dataset, batch_size = batch_size, shuffle = True)
     xl_dataloader = [(z, y) for z, y in xl_dataloader]
@@ -305,8 +307,8 @@ def generate_offline_training_data(total_number, batch_size = 64, pos_embedding 
     z = np.concatenate(z, axis = 0)
     y = np.array(y)
     # save the numpy file
-    np.save(open("xl.z.npy", 'w+b'), z)
-    np.save(open("xl.y.npy", 'w+b'), y)
+    np.save(open("{}.z.npy".format(ARCH), 'w+b'), z)
+    np.save(open("{}.y.npy".format(ARCH), 'w+b'), y)
     
     return z, y
     
@@ -444,8 +446,8 @@ def train_attacker(target = 0, path = None):
 
     TEST_SIZE = 1000
     HIDDEN_DIM = 200
-    BATCH_SIZE = 256 # 128 #64
-    TRUTH = True
+    BATCH_SIZE = 128 # 128 #64
+    TRUTH = False
     EMB_DIM = EMB_DIM_TABLE[ARCH]
     PATH = path
     best_acc = 0.0
@@ -477,10 +479,10 @@ def train_attacker(target = 0, path = None):
     topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
     print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
-        if(ARCH != 'transformer-xl'):
-            x, y, _ = get_batch(TEST_SIZE)
+        if(not ARCH in offline_archs):
+            x, y, _ = get_batch(BATCH_SIZE)
         else:
-            x, y, _ = get_batch(TEST_SIZE, is_offline = True, dataloader = xl_dataloader)
+            x, y, _ = get_batch(BATCH_SIZE, is_offline = True, dataloader = xl_dataloader)
         x, y = x.cuda(), y.cuda()
         optimizer.zero_grad()
         loss = classifier.loss(x, y)
@@ -613,7 +615,7 @@ def evaluate(path, arch, defense = None):
     # for 
     # print(baseline_acc)
     # print()
-    return [avg_util, protected_avg_util] # protected_acc_arr
+    return (protected_acc_arr, [avg_util, protected_avg_util]) # protected_acc_arr
 
     
     
@@ -622,6 +624,8 @@ def evaluate(path, arch, defense = None):
         
 
 if __name__ == '__main__':
+    # generate_offline_training_data(102400)
+    
     # predict()
     # import sys; sys.exit()
     TRAIN = (not ARGS.t)
