@@ -74,6 +74,6 @@ if __name__ == '__main__':
     print(to[0].shape)
     to = np.load('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/EX_part/EMB/doc2vec/train.Hong Kong.0.doc2vec.npy')
     print(to.shape)
->>>>>>> Y
+
 
 

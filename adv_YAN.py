@@ -12,11 +12,29 @@ from util import Embedder
 from tools import balance
 from tqdm import tqdm
 from DANN import DANN
+import argparse
 
-ARCH = "bert"
-CLS = 'DANN'
+
+
+parser = argparse.ArgumentParser(description='Medical Attack')
+parser.add_argument("-p", type=int, default= 5555, help = 'the comm port the client will use')
+parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
+parser.add_argument("-t", action='store_true', help = "to switch between training or testing")
+parser.add_argument("--save_p", type=str, default="default", help = 'the place to store the model')
+parser.add_argument("-a", type=str, default='bert', help = 'targeted architecture')
+parser.add_argument("-d", type=str, default='none', help = 'the type of defense to do')
+parser.add_argument("--clf", type = str, default='SVM', help = 'the type of attack model to use')
+parser.add_argument("-v", action='store_true', help = 'whether to be wordy')
+ARGS = parser.parse_args()
+
+
+
+ARCH = ARGS.a
+CLS = ARGS.clf
+
+
 CLS_NUM = 10
-VERBOSE = False
+VERBOSE = ARGS.v
 
 #SVM parameter
 SVM_KERNEL = 'linear'
@@ -26,23 +44,28 @@ MAXITER = 1000
 BATCH_SIZE = 64
 LAMDA = 1.0
 HIDDEN = 25
-DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/DANN_CPT/'
+# DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/DANN_CPT/'
 DANN_CACHED = False
 
 # MLP parameter
-CACHED = True
+CACHED = False
 EPOCH = 1000
 HIDDEN_DIM = 80
 BATCH_SIZE = 15
 LEARNING_RATE = 0.01
 PRINT_FREQ = 100
 K = 5
-CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/CPT/'
+
+
+# CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/MLP_CPT/'
+CPT_PATH = 'data/part_fake_5/MLP_CPT/'
+DANN_CPT_PATH = 'data/part_fake_5/DANN_CPT/'
 
 
 
-DEVICE = torch.device('cuda:1')
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
+DEVICE = torch.device('cuda:0')
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
 # LOCAL = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_4/'
@@ -292,14 +315,15 @@ def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
     Y_valid = np.array([(key in x) for x in raw_valid])
 
     # learn a transfer
-
-    if CLS is 'MLP':
+    print("The current CLS: {}".format(CLS))
+    if CLS == 'MLP':
         clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
         clf.fit(X, Y)
-    elif CLS is 'SVM':
+        print("here")
+    elif CLS == 'SVM':
         clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=False)
         clf.fit(X_valid, Y_valid)
-    elif CLS is 'DANN':
+    elif CLS == 'DANN':
         DANN_CPT_PATHs = DANN_CPT_PATH + "{}_cracker_{}.cpt".format(key, ARCH)
         clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=MAXITER, verbose=False, name=key, batch_size=BATCH_SIZE, lambda_adapt=LAMDA, hidden_layer_size=HIDDEN, cached = DANN_CACHED, cpt_path = DANN_CPT_PATHs)
         clf.fit(X, Y, X_adapt=Target_X, X_valid=X_valid, Y_valid=Y_valid)

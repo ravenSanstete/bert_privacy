@@ -56,12 +56,12 @@ class DANN(nn.Module):
     
 
     def forward(self, x):
-        x = torch.sigmoid(self.feature(x))
+        x = torch.sigmoid(self.feature_extractor(x))
         x = F.softmax(self.classifier(x), dim = 0)
         return x
 
     def _hidden_representation(self, x):
-        x = torch.sigmoid(self.feature(x))
+        x = torch.sigmoid(self.feature_extractor(x))
         return x
 
     def predict_(self, x):
@@ -88,12 +88,12 @@ class DANN(nn.Module):
         return predicted.cpu().numpy()
 
     def L_y(self, x, y):
-        x = torch.sigmoid(self.feature(x))
+        x = torch.sigmoid(self.feature_extractor(x))
         x = self.classifier(x)
         return self.criterion(x, y)
 
     def L_d(self, x, domain_y):
-        x = self.rev_grad(torch.sigmoid(self.feature(x)))
+        x = self.rev_grad(torch.sigmoid(self.feature_extractor(x)))
         x = self.domain_classifier(x)
 
         return self.criterion(x, domain_y)
