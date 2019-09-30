@@ -7,6 +7,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import GRU, Embedding, Linear
+
 from util import Embedder
 from tqdm import tqdm
 
@@ -20,8 +21,6 @@ parser.add_argument("-c", action='store_true', help = 'whether to use cached mod
 ARGS = parser.parse_args()
 
 
-
-
 def load_state_code(path = 'state.txt'):
     f = open(path, 'r')
     code = []
@@ -33,6 +32,7 @@ STATE_CODE = load_state_code()
 
 
 NUM = [str(i) for i in range(10)]
+
 INFER_PART = ARGS.m
 
 HIDDEN_DIM_TABLE = {
@@ -40,6 +40,7 @@ HIDDEN_DIM_TABLE = {
     "date" : 200,
     "year" : 400
 }
+
 
 ARCH = ARGS.a
 
@@ -62,6 +63,7 @@ CLS_NUM_TABLE = {
 
 
 EMB_DIM = EMB_DIM_TABLE[ARCH]
+
 
 
 embedder = Embedder(ARGS.p)
@@ -94,6 +96,7 @@ def gen(part = "year"):
 def get_batch(batch_size, part):
     batch = [gen(part) for i in range(batch_size)]
     z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
+
     y = [int(y)-1 for x, y in batch]
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
@@ -125,8 +128,10 @@ class Classifier(nn.Module):
         return topk.cpu().numpy()
 
     def loss(self, x, y):
+
         x = torch.sigmoid(self.fc1(x))
         x = self.fc2(x)
+
         _loss = self.criterion(x, y)
         return _loss
 
@@ -153,12 +158,15 @@ def main():
     MAX_ITER = 100000
     CACHED = ARGS.c
     PRINT_FREQ = 1000
+
     DEVICE = torch.device('cuda:0')
     TEST_SIZE = 1000
     HIDDEN_DIM = HIDDEN_DIM_TABLE[INFER_PART]
     CLS_NUM = CLS_NUM_TABLE[INFER_PART]
     BATCH_SIZE = 128 # 64
+
     PATH = "{}_{}_cracker.cpt".format(ARCH, INFER_PART)
+
     best_acc = 0.0
     K = 5
     
@@ -241,7 +249,6 @@ if __name__ == '__main__':
         #     print("Top-{} Year: {}".format(K, year))
         #     print("Top-{} Month: {}".format(K, [padding(str(x)) for x in (cracked[1][i, :] + 1)]))
         #     print("Top-{} Date: {}".format(K,  [padding(str(x)) for x in (cracked[2][i, :] + 1)]))
-
 
     
         

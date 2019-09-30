@@ -1,6 +1,8 @@
-# implement the gpt service in the same interface as the bert case
+# implement the xlnet service in the same interface as the bert case
+
 import torch
-from pytorch_transformers import OpenAIGPTTokenizer, OpenAIGPTModel, OpenAIGPTLMHeadModel
+from pytorch_transformers import XLMModel, XLMTokenizer
+
 from tqdm import tqdm
 import numpy as np
 from tools import zero_padding
@@ -10,14 +12,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 
-class GPTClient(object):
+class XLMClient(object):
     def __init__(self, chunck_size=64, max_length=35, device=torch.device('cuda:0')):
-        super(GPTClient, self).__init__()
+        super(XLMClient, self).__init__()
         self.chunck_size = chunck_size
-        self.tokenizer = OpenAIGPTTokenizer.from_pretrained('openai-gpt')
+        self.tokenizer = XLMTokenizer.from_pretrained('xlm-mlm-en-2048')
         self.max_length = max_length
         # load the model
-        self.model = OpenAIGPTModel.from_pretrained('openai-gpt')
+        self.model = XLMModel.from_pretrained('xlm-mlm-en-2048')
         self.model.eval()
         self.device = device
         # move model to device
@@ -30,7 +32,6 @@ class GPTClient(object):
             tokens = [self.tokenizer.encode(x)[:self.max_length] for x in sents[b:b + self.chunck_size]]  # tokenize
             # tokens = [self.tokenizer.convert_tokens_to_ids(x) for x in tokens] # convert to ids
             tokens = torch.tensor(zero_padding(tokens)).transpose(0, 1)  # padding and into tensors
-
             batches.append(tokens)
             # print(tokens)
             # break
@@ -53,9 +54,11 @@ class GPTClient(object):
 
 
 if __name__ == '__main__':
-    test_sents = list(open('/DATACENTER/data/pxd/bert_privacy/data/medical.test.txt', 'r'))
-    client = GPTClient(chunck_size=64)
+    test_sents = list(open('/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/Target/test.txt', 'r'))
+    file_name = '/DATACENTER/data/yyf/Py/bert_privacy/data/Airline/Target/test.xlm.npy'
+    client = XLMClient(chunck_size=64)
     embs = client.encode(test_sents)
+    # np.save(file_name, embs)
     print(embs.shape)
-    
-    
+
+

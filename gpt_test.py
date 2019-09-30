@@ -6,7 +6,7 @@ from pytorch_transformers import OpenAIGPTTokenizer, OpenAIGPTModel, OpenAIGPTLM
 
 # OPTIONAL: if you want to have more information on what's happening, activate the logger as follows
 import logging
-logging.basicConfig(level=logging.INFO)
+#logging.basicConfig(level=logging.INFO)
 
 # Load pre-trained model tokenizer (vocabulary)
 tokenizer = OpenAIGPTTokenizer.from_pretrained('openai-gpt')

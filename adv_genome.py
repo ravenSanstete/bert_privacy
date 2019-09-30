@@ -40,6 +40,7 @@ def do_kdtree(combined_x_y_arrays,points):
     dist, indexes = mytree.query(points)
     return dist, indexes
 
+
 def explate(seq):
     out = ""
     for c in seq:
@@ -52,7 +53,9 @@ def extract_genomes(path):
     for i in range(4): next(f)
     for line in f:
         line = line.split(' ')
+
         out.append(line[-1][:TOTAL_LEN])
+
     return out
 ## extraction 
 def _extract_genomes(path):
@@ -77,6 +80,7 @@ def prepare_raw_datasets():
     print("# of Negative Samples: {}".format(len(false_akpt)))
     print(len(true_akpt[0]))
     print(len(false_akpt[0]))
+
     return true_akpt, false_akpt
 
 def train_test_split(embs, ratio = 0.9):
@@ -137,6 +141,7 @@ INTERVAL_LEN = 1
 
 ARCH = 'gpt'
 
+
 def seq2id(s):
     val = 0
     base = 4 ** (INTERVAL_LEN - 1)
@@ -152,6 +157,7 @@ def id2seq(val):
 
 def gen(target = 0):
     # @param target: which specifies the inverval to infer (i.e. [target, target + inverval_LEN))
+<<<<<<< HEAD
     # key = [random.choice(REVERSE_TABLE) for i in range(target, target+INTERVAL_LEN)]
     part_A = [random.choice(REVERSE_TABLE) for i in range(0, target)]
     part_B = [random.choice(REVERSE_TABLE) for i in range(target+INTERVAL_LEN, TOTAL_LEN)]
@@ -199,7 +205,6 @@ def get_batch(target = 0, batch_size = 10):
     # print("INNER: {}".format(describe(inner_cluster_dist)))
     # for i in range(z.shape[0]):
     #     z[i, :] = z[i, :] - np.mean(z[i, :]) # what about the average
-
     y = [int(y) for x, y in batch]
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
@@ -234,6 +239,7 @@ class Classifier(nn.Module):
                                      Linear(400, embedding_size),
                                      nn.ReLU(True))
         self.classifier = Linear(100, cls_num)
+
         self.device = device
         self.criterion = nn.CrossEntropyLoss()
         print(cls_num)
@@ -241,6 +247,7 @@ class Classifier(nn.Module):
 
     def forward(self, x):
         x = self.classifier(self.encoder(x))
+
         return x
     
     def predict(self, x):
@@ -253,6 +260,7 @@ class Classifier(nn.Module):
             probs = self(x)
             _, topk = torch.topk(probs, k)
         return topk.cpu().numpy()
+
     
     def pretrain_loss(self, x):
         z = self.encoder(x)
@@ -263,6 +271,7 @@ class Classifier(nn.Module):
         
     def loss(self, x, y):
         x = self(x)
+
         _loss = self.criterion(x, y)
         return _loss
 
@@ -335,6 +344,7 @@ class DANNClassifier(nn.Module):
             y = y.numpy()
             print(np.histogram(y))
             print(np.histogram(preds))
+
         return np.mean(preds == y)
 
     def evaluate_topk(self, x, y, k = 5):
@@ -345,11 +355,6 @@ class DANNClassifier(nn.Module):
             topk = topk.cpu().numpy()
             acc = [int(y[i] in topk[i, :]) for i in range(len(y))]
         return np.mean(acc)
-        
-         
-
-
-    
 
 def train_attacker(target = 0):
     TARGET = target
@@ -372,6 +377,7 @@ def train_attacker(target = 0):
         print("Loading Model...")
         classifier.load_state_dict(torch.load(PATH))
     classifier = classifier.to(DEVICE)
+
 
     if(TRUTH):
         test_x, test_y, _ = get_batch_ground_truth(TARGET, TEST_SIZE)
@@ -421,6 +427,7 @@ def train_attacker(target = 0):
             running_mean = np.zeros([EMB_DIM])
             # print(raw[:4])
             # print(y[:4])
+
             if(acc >= best_acc):
                 best_acc = acc
                 torch.save(classifier.state_dict(), PATH)
