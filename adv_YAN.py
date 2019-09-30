@@ -20,11 +20,12 @@ parser = argparse.ArgumentParser(description='Medical Attack')
 parser.add_argument("-p", type=int, default= 5555, help = 'the comm port the client will use')
 parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
 parser.add_argument("-t", action='store_true', help = "to switch between training or testing")
-parser.add_argument("--save_p", type=str, default="default", help = 'the place to store the model')
+# parser.add_argument("--save_p", type=str, default="default", help = 'the place to store the model')
 parser.add_argument("-a", type=str, default='bert', help = 'targeted architecture')
 parser.add_argument("-d", type=str, default='none', help = 'the type of defense to do')
 parser.add_argument("--clf", type = str, default='SVM', help = 'the type of attack model to use')
 parser.add_argument("-v", action='store_true', help = 'whether to be wordy')
+
 ARGS = parser.parse_args()
 
 
@@ -44,11 +45,13 @@ MAXITER = 1000
 BATCH_SIZE = 64
 LAMDA = 1.0
 HIDDEN = 25
+
+
 # DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/DANN_CPT/'
-DANN_CACHED = False
+# DANN_CACHED = False
 
 # MLP parameter
-CACHED = False
+
 EPOCH = 1000
 HIDDEN_DIM = 80
 BATCH_SIZE = 15
@@ -58,8 +61,23 @@ K = 5
 
 
 # CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/MLP_CPT/'
-CPT_PATH = 'data/part_fake_5/MLP_CPT/'
-DANN_CPT_PATH = 'data/part_fake_5/DANN_CPT/'
+# CPT_PATH = 'data/part_fake_5/MLP_CPT/'
+
+
+
+if(not ARGS.t):
+    DANN_CPT_PATH = 'data/part_fake_5/DANN_CPT/'
+    DANN_CACHED = False
+    CPT_PATH = 'data/part_fake_5/MLP_CPT/'
+    CACHED = False
+else: # toggle it to use Yan's pretrained model
+    DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/DANN_CPT/'
+    CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/MLP_CPT/'
+    DANN_CACHED = True
+    CACHED = True
+
+    
+    
 
 
 
@@ -143,13 +161,15 @@ def DANNA(key, size=2000):
 
     # load validation set (let us load gpt2)
     raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATH + '.' + ARCH + '.npy')
+
+    # the potato case is somehow necessary, because it is the case where all the answers should be negative
     if (key != 'potato'):
         raw_valid, X_valid = balance(key, raw_valid, X_valid)
     print(len(raw_valid))
     Y_valid = np.array([(key in x) for x in raw_valid])
 
     # learn a transfer
-    clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=4000, verbose=False, name=key, batch_size=BATCH_SIZE,
+    clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=4000, verbose=VERBOSE, name=key, batch_size=BATCH_SIZE,
                lambda_adapt=LAMDA, hidden_layer_size=HIDDEN)
     acc = clf.fit(X, Y, X_adapt=train_embs, X_valid=X_valid, Y_valid=Y_valid)
 
@@ -297,6 +317,7 @@ def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
     X = np.concatenate(X, axis=0)
     Y = np.array(Y)
 
+
     # (Target_sents, Target_X) is from target domain.
     # Target_X are sentence embeddings. Target_sents are original sentences.
     f = open(TRAIN_PATH, 'r')
@@ -306,6 +327,8 @@ def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
     Target_sents, Target_X = balance(key, Target_sents, Target_X)
     Target_Y = np.array([(key in x) for x in Target_sents])
 
+
+
     # (X_valid, Y_valid) is from valid set.
     # SVM: This is regarded as shadow corpus of Target domain.
     # DANN or MLP: This is used to early stop.
@@ -314,18 +337,24 @@ def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
     raw_valid, X_valid = balance(key, raw_valid, X_valid)
     Y_valid = np.array([(key in x) for x in raw_valid])
 
-    # learn a transfer
-    print("The current CLS: {}".format(CLS))
+
+    if(VERBOSE):
+        print("TRAINING SET SIZE: {}".format(len(Y)))
+        print("EMBEDDINGS FROM TARGET DOMAIN: {}".format(len(Target_Y)))
+        print("TEST SET SIZE: {}".format(len(Y_valid)))
+        # learn a transfer
+        print("TESTING MODEL: {}".format(CLS))
+
     if CLS == 'MLP':
         clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
         clf.fit(X, Y)
-        print("here")
     elif CLS == 'SVM':
-        clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=False)
+        clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=VERBOSE)
         clf.fit(X_valid, Y_valid)
     elif CLS == 'DANN':
+        # I have no idea whether the 1000 is.
         DANN_CPT_PATHs = DANN_CPT_PATH + "{}_cracker_{}.cpt".format(key, ARCH)
-        clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=MAXITER, verbose=False, name=key, batch_size=BATCH_SIZE, lambda_adapt=LAMDA, hidden_layer_size=HIDDEN, cached = DANN_CACHED, cpt_path = DANN_CPT_PATHs)
+        clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=MAXITER, verbose=VERBOSE, name=key, batch_size=BATCH_SIZE, lambda_adapt=LAMDA, hidden_layer_size=HIDDEN, cached = DANN_CACHED, cpt_path = DANN_CPT_PATHs)
         clf.fit(X, Y, X_adapt=Target_X, X_valid=X_valid, Y_valid=Y_valid)
         Target_X = torch.FloatTensor(Target_X)
         acc = clf.validate(Target_X, Target_Y)

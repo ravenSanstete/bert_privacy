@@ -128,8 +128,12 @@ class DANN(nn.Module):
               (X_valid, Y_valid) : validation set used for early stopping.
               do_random_init : A boolean indicating whether to use random initialization or not.
         """
+        
+        if(self.cached and self.verbose): print("Attempt to Load Model from {} ...".format(self.checkpoint_path))
+
+        
         if (self.cached and os.path.exists(self.checkpoint_path)):
-            # print("Loading Model...")
+
             self.load_state_dict(torch.load(self.checkpoint_path))
             preds = self.predict_(X)
             correct = np.sum(preds == Y)
