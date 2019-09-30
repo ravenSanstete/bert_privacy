@@ -78,6 +78,7 @@ embedding = embedder.embedding # export the functional port
 COUNTER = 0
 
 offline_archs = ['transformer-xl']
+offline_archs = []
 
 if(ARCH in offline_archs):
     # construct the transformer
@@ -362,6 +363,8 @@ def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,def
     # print(len(y))
     z_1 = embedding(y_1, embedding_path.format(1), arch)[:batch_size, :]
     z_0 = embedding(y_0, embedding_path.format(0), arch)[:batch_size, :]
+    # print(z_1.shape)
+    # print(z_0.shape)
     z = np.concatenate([z_1, z_0], axis = 0)
 
     utility_y = np.array([1]*batch_size + [0]*batch_size)
@@ -580,6 +583,7 @@ def evaluate(path, arch, defense = None):
         
         atk_acc_arr.append(acc)
 
+        protected_util_acc, protected_acc, protected_topk_acc = 0.0, 0.0, 0.0
         if(defense):
             protected_test_x, _, _, protected_raw_x = get_batch_ground_truth(target, TEST_SIZE, True, defense, arch = arch, pos_embedding = local_pos_embedding)
             protected_test_x = torch.FloatTensor(protected_test_x).cuda()
@@ -594,7 +598,7 @@ def evaluate(path, arch, defense = None):
             protected_acc_arr.append(protected_acc)
         
         
-        # print("Util Acc: {:.4f} Protected Util Acc.: {:.4f} TARGET INDEX {} ACC: {:.4f} TOP-2: {:.4f} Protected: {:.4f} Protected Top-2: {:.4f}".format(util_acc, protected_util_acc, target, acc, topk_acc, protected_acc, protected_topk_acc))
+        print("Util Acc: {:.4f} Protected Util Acc.: {:.4f} TARGET INDEX {} ACC: {:.4f} TOP-2: {:.4f} Protected: {:.4f} Protected Top-2: {:.4f}".format(util_acc, protected_util_acc, target, acc, topk_acc, protected_acc, protected_topk_acc))
     # print("Average Acc: {:.4f} Average Top-2 Acc.: {:.4f} Avergage Util: {:.4f} Protected: {:.4f} {:.4f} {:.4f}".format(average_acc/TOTAL_LEN, average_topk_acc/TOTAL_LEN, avg_util/TOTAL_LEN, protected_avg_acc/TOTAL_LEN, protected_avg_topk_acc/TOTAL_LEN, protected_avg_util/TOTAL_LEN))
 
     """
@@ -631,6 +635,10 @@ if __name__ == '__main__':
     TRAIN = (not ARGS.t)
     DEFENSE = ARGS.d
     TEST_ARCHS = ["bert", "gpt", "gpt-2", "xlm", "xlnet", "roberta", "transformer-xl", "ernie"]
+    TEST_ARCHS = TEST_ARCHS[:1]
+    
+    
+    
     # TEST_ARCHS = ["transformer-xl"]
     # prepare_raw_datasets()
     DELTA_TABLE = {
@@ -686,7 +694,7 @@ if __name__ == '__main__':
             RESULTS = [(eps_list[i], RESULTS[i]) for i in range(len(RESULTS))]
             print(RESULTS)
         elif(DEFENSE == 'minmax'):
-            eps_list = [0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 100.0]
+            eps_list = [0.001, 0.005, 0.01, 0.1, 0.5, 1.0]
             RESULTS = [dict() for _ in eps_list]
             # defenses = []
             for i, arch in enumerate(TEST_ARCHS):
@@ -704,7 +712,6 @@ if __name__ == '__main__':
             
     else:
         evaluate(TEMPLATE.format(ARGS.save_p, ARGS.a), ARGS.a)
-        
         # evaluate(PATH)
 
     # z, y = generate_offline_training_data(1024 * 100)
