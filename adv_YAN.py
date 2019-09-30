@@ -13,6 +13,8 @@ from tools import balance
 from tqdm import tqdm
 from DANN import DANN
 import argparse
+from defense import initialize_defense
+
 
 
 
@@ -107,13 +109,15 @@ P_TABLE = {
     "xlnet": 5002,
     "xlm": 5004,
     "roberta":5003,
-    "ernie": 5005
+    "ernie": 5005,
+    "bert-base": 5049
 }
 
 p = P_TABLE[ARCH]
 
 
 EMB_DIM_TABLE = {
+    "bert-base": 768,
     "bert": 1024,
     "gpt": 768,
     "gpt2": 768,
@@ -302,10 +306,12 @@ def early_stopping_evaluate(clf, key):
     # print("early_stopping set Inference {} Acc: {:.3f}".format(key, results[0][0] + results[1][1]))
     return acc
 
-def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
+def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     # (X, Y) is from external corpus.
     # X are sentence embeddings. Y are labels.
     # To prepare an external corpus, we substitute the food keywords in Yelp dataset to body keywords.
+
+    ## GET THE TRAINING DATA, NO NEED TO DEFEND
     X, Y = [], []
     for i in [0, 1]:  # while my training data is from gpt
         f = open(DS_PATH.format(key, i) + '.txt', 'r')
@@ -323,12 +329,21 @@ def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
     f = open(TRAIN_PATH, 'r')
     Target_sents = [x[:-1] for x in f if x[:-1] != '']
     f.close()
+
+    # trunk DEFEND
     Target_X = embedding(Target_sents, TRAIN_EMB_PATH, ARCH)
     Target_sents, Target_X = balance(key, Target_sents, Target_X)
     Target_Y = np.array([(key in x) for x in Target_sents])
+    # print("Balanced: {}".format(np.mean(Target_Y)))
 
+    # now the target Y here is the sensitive label
 
-
+    if(defense):
+        protected_target_X = defense(Target_X, Target_Y)
+        # print(Target_X[0, :])
+        # print(torch.sum(protected_target_X[0, :]))
+        
+        
     # (X_valid, Y_valid) is from valid set.
     # SVM: This is regarded as shadow corpus of Target domain.
     # DANN or MLP: This is used to early stop.
@@ -336,7 +351,7 @@ def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
     raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATH + '.' + ARCH + '.npy')
     raw_valid, X_valid = balance(key, raw_valid, X_valid)
     Y_valid = np.array([(key in x) for x in raw_valid])
-
+    
 
     if(VERBOSE):
         print("TRAINING SET SIZE: {}".format(len(Y)))
@@ -345,55 +360,81 @@ def ATTACK(key, use_dp=False, dp_func=None, verbose=VERBOSE, size = 2000):
         # learn a transfer
         print("TESTING MODEL: {}".format(CLS))
 
+    acc, protected_acc = 0.0, 0.0
     if CLS == 'MLP':
         clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
         clf.fit(X, Y)
+        # assume the existence of the model
+        acc = clf._evaluate(Target_X, Target_Y)
+
+
+        # the core dump happens here while no reason is observed currently
+        # if(defense):
+            # protected_target_X = torch.FloatTensor(protected_target_X).cuda()
+            # protected_acc = clf._evaluate(protected_target_X, Target_Y)
     elif CLS == 'SVM':
         clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=VERBOSE)
         clf.fit(X_valid, Y_valid)
+        # if(defense):
+        # the common approach 
+        preds = clf.predict(Target_X)
+        acc = np.mean(preds == Target_Y)
+        if(defense):
+            preds = clf.predict(protected_target_X)
+            protected_acc = np.mean(preds == Target_Y)
     elif CLS == 'DANN':
         # I have no idea whether the 1000 is.
-        DANN_CPT_PATHs = DANN_CPT_PATH + "{}_cracker_{}.cpt".format(key, ARCH)
+        DANN_CPT_PATHs = DANN_CPT_PATH + "1000{}_cracker_{}.cpt".format(key, ARCH)
         clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=MAXITER, verbose=VERBOSE, name=key, batch_size=BATCH_SIZE, lambda_adapt=LAMDA, hidden_layer_size=HIDDEN, cached = DANN_CACHED, cpt_path = DANN_CPT_PATHs)
         clf.fit(X, Y, X_adapt=Target_X, X_valid=X_valid, Y_valid=Y_valid)
         Target_X = torch.FloatTensor(Target_X)
         acc = clf.validate(Target_X, Target_Y)
-        print("Target Domain Inference {} Acc: {:.3f}".format(key, acc))
-        return acc
+        if(defense):
+            protected_target_X = torch.FloatTensor(protected_target_X).cuda()
+            protected_acc = clf.validate(protected_target_X, Target_Y)
+        # print("Target Domain Inference {} Acc: {:.3f}".format(key, acc))
+        # return acc
     else:
         clf = None
         print('wrong cls\' name')
+    return acc, protected_acc
 
+    # # predict on Target_X
+    # acc = clf._evaluate(Target_X, Target_Y)
+    # # results = np.zeros((2, 2))
+    # # count = 0
+    # # for i, sent in enumerate(list(Target_sents)):
+    # #     pred_ = int(clf.predict([Target_X[i]])[0])
+    # #     truth_ = int(key in sent)
+    # #     results[pred_][truth_] += 1
+    # #     count += 1
+    # # results /= (count * 1.0)
+    # # acc = results[0][0] + results[1][1]
+    # print("Target Domain Inference {} Acc: {:.3f} Protected: {:.4f}".format(key, acc, protected_acc))
 
-    # predict on Target_X
-    results = np.zeros((2, 2))
-    count = 0
-    for i, sent in enumerate(list(Target_sents)):
-        pred_ = int(clf.predict([Target_X[i]])[0])
-        truth_ = int(key in sent)
-        results[pred_][truth_] += 1
-        count += 1
-    results /= (count * 1.0)
-    acc = results[0][0] + results[1][1]
-    print("Target Domain Inference {} Acc: {:.3f}".format(key, results[0][0] + results[1][1]))
-    return acc
+    
+    # return acc
 
 if __name__ == '__main__':
     # DS_prepare()
     # EX_DS_prepare()
-
+    # init a defense to test
     Source_Acc_sum = 0
     Target_Acc_sum = 0
     Target_Acc_list = []
     data_embedding()
-
+    _def =  initialize_defense('rounding', decimals = 0)
+    protected_avg_acc = 0.0
+    
     for key in cls_names:
-        TA = ATTACK(key)
+        TA, protected_acc = ATTACK(key, defense = _def)
         Target_Acc_sum += TA
-        Target_Acc_list.append([key, TA])
+        protected_avg_acc += protected_acc
+        Target_Acc_list.append([key, TA, protected_acc])
 
     print('Keyword Attacker {} on {} Ebeddings'.format(CLS, ARCH))
     for KT in Target_Acc_list:
-        print('INFER {} ACC: %.4f'.format(KT[0])%KT[1])
-    print('Target_Acc_Top1_Average: %.3f'%(Target_Acc_sum / len(cls_names)))
-
+        print('INFER {} ACC: {:.4f} Protected Acc.: {:.4f}'.format(KT[0], KT[1], KT[2]))
+    print('Target_Acc_Top1_Average: {:.4f} Protected Target_Acc_Average: {:.4f}'.format(Target_Acc_sum / len(cls_names), protected_avg_acc / len(cls_names)))
+    
+    

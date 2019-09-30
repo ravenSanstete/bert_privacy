@@ -368,8 +368,13 @@ def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,def
     z = np.concatenate([z_1, z_0], axis = 0)
 
     utility_y = np.array([1]*batch_size + [0]*batch_size)
+
+    # the sensitive y
+    y = [seq2id(x[target:target+INTERVAL_LEN]) for x in y]
+
+    # seems a bug here
     if(use_defense):
-        z = defense(z, utility_y) # add the defense
+        z = defense(z, y) # add the defense
     raw_z = z
     ## obtain the correposnding positional embedding
     pos_embeddings = np.array([pos_embedding[target] for i in range(2*batch_size)])
@@ -378,7 +383,7 @@ def get_batch_ground_truth(target = 0, batch_size = 10, use_defense = False ,def
     else:
         z = z + pos_embeddings
     # y = _extract_genomes(TRUE_PATH)[:batch_size]
-    y = [seq2id(x[target:target+INTERVAL_LEN]) for x in y]
+   
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
     return z, y, utility_y, raw_z
@@ -635,7 +640,7 @@ if __name__ == '__main__':
     TRAIN = (not ARGS.t)
     DEFENSE = ARGS.d
     TEST_ARCHS = ["bert", "gpt", "gpt-2", "xlm", "xlnet", "roberta", "transformer-xl", "ernie"]
-    TEST_ARCHS = TEST_ARCHS[:1]
+    # TEST_ARCHS = TEST_ARCHS[:1]
     
     
     

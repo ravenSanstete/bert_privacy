@@ -227,10 +227,10 @@ if __name__ == '__main__':
     X = np.concatenate([TEST_X_0, TEST_X_1], axis = 0)
     Y = np.array([0] * len(TEST_X_0) + [1] * len(TEST_X_1))
     embedding_dim = 768
-    cls_num = 2
+    # cls_num = 2
     # defender = ActiveDefender(embedding_dim, cls_num)
     # defender.train(X, Y, 100)
-    X_hat = adversarial_defense(X, Y, cls_num = 2, eps = 0.01)
+    X_hat = adversarial_defense(X, Y, cls_num = 4, eps = 0.01)
     print(X_hat)
     
     
