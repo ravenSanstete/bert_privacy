@@ -138,7 +138,7 @@ class DANN(nn.Module):
             preds = self.predict_(X)
             correct = np.sum(preds == Y)
             correct = correct / len(Y)
-            print("Source Domain batch Acc.: {:.4f}".format(correct))
+            # print("Source Domain batch Acc.: {:.4f}".format(correct))
 
             if(self.use_cuda):
                 self.cuda()
