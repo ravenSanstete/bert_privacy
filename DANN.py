@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from pytorch_revgrad import RevGrad
 import random
 from tqdm import tqdm
+from scipy.stats import describe
 
 
 class DANN(nn.Module):
@@ -156,6 +157,8 @@ class DANN(nn.Module):
         domain_loader = list(domain_loader)
         clf_loader = list(clf_loader)
         best_acc = 0.0
+        avg_acc = []
+        print_count = 0
 
         if(self.use_cuda):
             self.cuda()
@@ -188,6 +191,7 @@ class DANN(nn.Module):
                 running_ld = 0.0
                 running_ly = 0.0
                 target_acc  = self.validate(X_valid, Y_valid)
+                avg_acc.append(target_acc)
 
                 if self.verbose:
                     print("Source Domain Acc.: {:.4f}".format(self.validate(X, Y_cpu)))
@@ -195,8 +199,9 @@ class DANN(nn.Module):
                     print("Domain Clf Acc.: {:.4f}".format(self.validate_domain(X, X_adapt, )))
                 if (target_acc >= best_acc):
                     best_acc = target_acc
+                    print_count += 1
                     torch.save(self.state_dict(), self.checkpoint_path)
-        print("INFER {} Best ACC in Valid Dataset. {:.4f}".format(self.name, best_acc))
+        print("INFER {} Best ACC in Valid Dataset. {:.4f} Average ACC {}".format(self.name, best_acc, describe(avg_acc)))
         return best_acc
                 
                     

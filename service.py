@@ -33,10 +33,11 @@ PREFIX = '/home/mlsnrs/data/data/pxd/lms/'
 # PyTorch-Transformers has a unified API
 # for 7 transformer architectures and 30 pretrained weights.
 #          Model          | Tokenizer          | Pretrained weights shortcut
-MODELS = {'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-uncased'),
+MODELS = {'bert-base': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-uncased'),
           'gpt': (OpenAIGPTModel,  OpenAIGPTTokenizer, PREFIX + 'openai-gpt'),
           'gpt-2': (GPT2Model,       GPT2Tokenizer,      PREFIX + 'gpt2'),
           'transformer-xl': (TransfoXLModel,  TransfoXLTokenizer, PREFIX + 'transfo-xl-wt103'),
+          'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-large-uncased'),
           'xlnet': (XLNetModel,      XLNetTokenizer,    PREFIX+ 'xlnet-base-cased'),
           'xlm': (XLMModel,        XLMTokenizer,       PREFIX+'xlm-mlm-enfr-1024'),
           'roberta': (RobertaModel,    RobertaTokenizer,  PREFIX+ 'roberta-base')}
@@ -64,9 +65,14 @@ class LMServer(object):
         self.model = MODELS[name][0].from_pretrained(MODELS[name][2])
         
         self.model.eval()
+
+        parameter_count = sum(p.numel() for p in self.model.parameters())
+        trainable_parameter_count = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print("Total Parameter Count: {}/{}".format(trainable_parameter_count, parameter_count))
         self.device = device
         # move model to device
         self.model.to(self.device)
+        
         self.port = ARGS.p
         self.addr = "tcp://*:"+ str(self.port)
         
@@ -83,6 +89,7 @@ class LMServer(object):
             #  Wait for next request from client
             message = socket.recv_json()
             sents = json.loads(message)
+            # print(sents)
 
             print("Received # of Sents: {}".format(len(sents)))
             embs = self.encode(sents)
@@ -98,11 +105,12 @@ class LMServer(object):
     # given the sentences, return the embeddings
     def encode(self, sents):
         batches = []
-
         # print(sents)
         for b in range(0, len(sents), self.chunck_size):
-            tokens = [self.tokenizer.encode(x, add_special_tokens = (self.name == 'roberta'))[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
-             #print(tokens)
+            tokens = [self.tokenizer.encode(x, add_special_tokens = False)[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
+            # print(tokens)
+            # print([len(x) for x in tokens])
+            # print([len(x) for x in sents[b:b+self.chunck_size]])
             tokens = torch.tensor(zero_padding(tokens)).transpose(0, 1) # padding and into tensors
             
 

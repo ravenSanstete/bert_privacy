@@ -27,6 +27,7 @@ parser.add_argument("-a", type=str, default='bert', help = 'targeted architectur
 parser.add_argument("-d", type=str, default='none', help = 'the type of defense to do')
 parser.add_argument("--clf", type = str, default='SVM', help = 'the type of attack model to use')
 parser.add_argument("-v", action='store_true', help = 'whether to be wordy')
+parser.add_argument("-f", type=str, default='atk', help = 'to specify the functional')
 
 ARGS = parser.parse_args()
 
@@ -48,7 +49,7 @@ BATCH_SIZE = 64
 LAMDA = 1.0
 HIDDEN = 25
 
-FUNCTION = 'def'
+FUNCTION = 'atk'
 
 # DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/DANN_CPT/'
 # DANN_CACHED = False
@@ -71,7 +72,7 @@ K = 5
 if(not ARGS.t):
     DANN_CPT_PATH = 'data/part_fake_5/DANN_CPT/'
     DANN_CACHED = False
-    CPT_PATH = 'data/part_fake_5/MLP_CPT/'
+    CPT_PATH = 'data/part/MLP_CPT/'
     CACHED = False
 else: # toggle it to use Yan's pretrained model
     DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/DANN_CPT/'
@@ -97,9 +98,14 @@ DS_EMB_PATH = DS_LOCAL + '{}.{}'
 
 TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.txt'
 TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.x'
+# TARGET_EMB_PATH = 'data/medical.test.x'
 
 TRAIN_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.txt'
 TRAIN_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.x'
+# TRAIN_EMB_PATH = 'data/medical.train.x'
+
+
+
 UTIL_MODEL_PATH = 'data/part_fake_5/MLP_CPT/'
 
 P_TABLE = {
@@ -114,11 +120,12 @@ P_TABLE = {
     "ernie": 5005
 }
 
-p = P_TABLE[ARCH]
+p = ARGS.p
 
 
 EMB_DIM_TABLE = {
     "bert-base": 768,
+    # "bert": 768,
     "bert": 1024,
     "gpt": 768,
     "gpt2": 768,
@@ -245,11 +252,10 @@ class NonLinearClassifier(nn.Module):
             test_X = torch.FloatTensor(test_X)
             test_Y = torch.LongTensor(test_Y)
         
-
-        if (CACHED and os.path.exists(CPT_PATH + "{}_cracker_{}.cpt".format(self.key, ARCH))):
-            # print("Loading Model...")
-            
-            self.load_state_dict(torch.load(CPT_PATH + "{}_cracker_{}.cpt".format(self.key, ARCH)))
+        model_path = CPT_PATH + "{}_cracker_{}.cpt".format(self.key, ARCH)
+        if (CACHED and os.path.exists(model_path)):
+            print("Loading Model from {} ...".format(model_path))
+            self.load_state_dict(torch.load(model_path))
             # X = X.cuda()
             # Y = torch.LongTensor(Y)
             preds = self.predict(X)
@@ -315,14 +321,18 @@ class NonLinearClassifier(nn.Module):
 def compute_utility():
     print("Evaluate {} Utility".format(ARCH))
     sents = [x[:-1].split('\t') for x in  open(TRAIN_PATH, 'r') if x[:-1] != '']
+    sents_train = [x[0] for x in sents]
     # print(sents[0])
     train_y = np.array([int(s[1]) for s in sents])
     sents = [x[:-1].split('\t') for x in  open(TARGET_PATH, 'r') if x[:-1] != '']
+    sents_test = [x[0] for x in sents]
     test_y = np.array([int(s[1]) for s in sents])
     print(len(train_y))
     print(len(test_y))
-    train_x = embedding(None, TRAIN_EMB_PATH, ARCH)
-    test_x = embedding(None, TARGET_EMB_PATH, ARCH)
+    print(sents_train[0])
+    print(sents_test[0])
+    train_x = embedding(sents_train, TRAIN_EMB_PATH, ARCH)
+    test_x = embedding(sents_test, TARGET_EMB_PATH, ARCH)
     if(CLS == 'MLP'):
         clf = NonLinearClassifier('', EMB_DIM_TABLE[ARCH], HIDDEN_DIM, cls_num = 10)
         clf.cuda()
@@ -465,7 +475,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
             protected_acc = np.mean(preds == Target_Y)
     elif CLS == 'DANN':
         # I have no idea whether the 1000 is.
-        DANN_CPT_PATHs = DANN_CPT_PATH + "1000{}_cracker_{}.cpt".format(key, ARCH)
+        DANN_CPT_PATHs = DANN_CPT_PATH + "{}_cracker_{}.cpt".format(key, ARCH)
         clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=MAXITER, verbose=VERBOSE, name=key, batch_size=BATCH_SIZE, lambda_adapt=LAMDA, hidden_layer_size=HIDDEN, cached = DANN_CACHED, cpt_path = DANN_CPT_PATHs)
         # clf.cuda()
         clf.fit(X, Y, X_adapt=Target_X, X_valid=X_valid, Y_valid=Y_valid)
@@ -524,7 +534,7 @@ if __name__ == '__main__':
         protected_avg_acc = 0.0
 
         for key in cls_names:
-            TA, protected_acc = ATTACK(key, use_dp = True, defense = _def)
+            TA, protected_acc, _, _ = ATTACK(key, use_dp = True, defense = _def)
             Target_Acc_sum += TA
             protected_avg_acc += protected_acc
             Target_Acc_list.append([key, TA, protected_acc])

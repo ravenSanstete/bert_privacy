@@ -81,15 +81,15 @@ def compute_diff(z):
 if __name__ == '__main__':
     import torch
     from pytorch_transformers import *
-    PATH = "/home/mlsnrs/data/pxd/lms"
+    PATH = "/home/mlsnrs/data/data/pxd/lms"
     # PyTorch-Transformers has a unified API
     # for 7 transformer architectures and 30 pretrained weights.
     #          Model          | Tokenizer          | Pretrained weights shortcut
-    MODELS = [(RobertaModel,    RobertaTokenizer,   'roberta-base')]
+    MODELS = [(BertModel,       BertTokenizer,      'bert-large-uncased')]
 
     # Let's encode some text in a sequence of hidden-states using each model:
     for model_class, tokenizer_class, pretrained_weights in MODELS:
-        path = '/home/mlsnrs/data/pxd/lms/{}/'.format(pretrained_weights)
+        path = '/home/mlsnrs/data/data/pxd/lms/{}/'.format(pretrained_weights)
         if not os.path.exists(path):
             os.mkdir(path)
         # Load pretrained model/tokenizer
