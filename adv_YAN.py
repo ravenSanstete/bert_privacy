@@ -18,6 +18,7 @@ from defense import initialize_defense
 
 
 
+
 parser = argparse.ArgumentParser(description='Medical Attack')
 parser.add_argument("-p", type=int, default= 5555, help = 'the comm port the client will use')
 parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
@@ -58,11 +59,11 @@ FUNCTION = 'atk'
 
 EPOCH = 50
 HIDDEN_DIM = 80
-BATCH_SIZE = 15
+BATCH_SIZE = 50
 LEARNING_RATE = 0.01
 PRINT_FREQ = 100
 K = 5
-
+DATASET = 'skytrax'
 
 # CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/MLP_CPT/'
 # CPT_PATH = 'data/part_fake_5/MLP_CPT/'
@@ -80,6 +81,9 @@ else: # toggle it to use Yan's pretrained model
     DANN_CACHED = True
     CACHED = True
 
+
+
+    
     
     
 
@@ -90,19 +94,42 @@ DEVICE = torch.device('cuda:0')
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
-# LOCAL = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_4/'
-DS_LOCAL = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_5/'
+if(DATASET == 'medical'):
+    # LOCAL = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_4/'
+    DS_LOCAL = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_5/'
 
-DS_PATH = DS_LOCAL + '{}.{}'
-DS_EMB_PATH = DS_LOCAL + '{}.{}'
+    DS_PATH = DS_LOCAL + '{}.{}'
+    DS_EMB_PATH = DS_LOCAL + '{}.{}'
 
-TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.txt'
-TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.x'
-# TARGET_EMB_PATH = 'data/medical.test.x'
+    TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.txt'
+    TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.x'
+    # TARGET_EMB_PATH = 'data/medical.test.x'
 
-TRAIN_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.txt'
-TRAIN_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.x'
-# TRAIN_EMB_PATH = 'data/medical.train.x'
+    TRAIN_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.txt'
+    TRAIN_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.x'
+    # TRAIN_EMB_PATH = 'data/medical.train.x'
+
+    cls_names = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
+else:
+    cls_names = {'Hong Kong','London','Toronto','Paris','Rome','Sydney','Dubai','Bangkok','Singapore','Frankfurt'}
+    TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid.txt'
+    TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid'
+
+    TRAIN_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/test.txt'
+    TRAIN_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/test'
+
+    DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/train' + '.{}.{}'
+    DS_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/EMB/{}/train'.format(ARCH) + '.{}.{}'
+
+    DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_CPT/find_'
+    DANN_O_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_Without_Valid_CPT/find_'
+
+    MLP_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/MLP_CPT/'
+    MLP_O_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/MLP_Without_Valid_CPT/'
+
+
+
+
 
 
 
@@ -136,8 +163,6 @@ EMB_DIM_TABLE = {
     "ernie":768
 }
 
-
-cls_names = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
 
 embedder = Embedder(p)
 embedding = embedder.embedding # export the functional port
@@ -294,12 +319,14 @@ class NonLinearClassifier(nn.Module):
                 running_loss += loss.item()
                 counter += 1
 
-            if ((epoch+1) % 1 == 0):
+            if ((epoch+1) % 10 == 0):
                 print('Epoch %d loss: %.5f Count: %d' % (epoch + 1, running_loss, counter))
                 running_loss = 0.0
                 counter = 0
                 preds = self.predict(X)
                 correct = np.sum(preds == y_cpu)
+                print(np.histogram(preds, bins = 2))
+                print(np.histogram(y_cpu, bins = 2))
                 correct = correct / len(y_cpu)
                 # print("Source Domain batch Acc.: {:.4f}".format(correct))
 
@@ -404,8 +431,12 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     # print(Target_sents[0])
     Target_Y = np.array([(key in x) for x in Target_sents])
     sents = [x.split('\t') for x in Target_sents if x[:-1] != '']
+    # print(sents)
     # print(sents[0])
-    target_util_y = np.array([int(s[1]) for s in sents])
+    if(DATASET == 'medical'):
+        target_util_y = np.array([int(s[1]) for s in sents])
+    else:
+        target_util_y = np.array([0 for s in sents])
 
 
 
@@ -431,11 +462,12 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
 
     # load the utility model
 
-    util_clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM, cls_num = 10)
-    util_clf.load_state_dict(torch.load(UTIL_MODEL_PATH + "medical_functional_{}.cpt".format(ARCH)))
-    util_clf.cuda()
-    preds = util_clf.predict(Target_X)
-    util_acc = np.mean(preds == target_util_y)
+    if(DATASET == 'medical'):
+        util_clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM, cls_num = 10)
+        util_clf.load_state_dict(torch.load(UTIL_MODEL_PATH + "medical_functional_{}.cpt".format(ARCH)))
+        util_clf.cuda()
+        preds = util_clf.predict(Target_X)
+        util_acc = np.mean(preds == target_util_y)
     # print("Util Acc. {:.4f}".format(acc))
     if(use_dp):
         protected_target_X = torch.FloatTensor(protected_target_X)
@@ -452,6 +484,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
         print("TESTING MODEL: {}".format(CLS))
 
     acc, protected_acc = 0.0, 0.0
+    util_acc, protected_util_acc = 0.0, 0.0
     if CLS == 'MLP':
         clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
         clf.cuda()
@@ -464,6 +497,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
             protected_acc = clf._evaluate(protected_target_X, Target_Y)
             
     elif CLS == 'SVM':
+        # shadow 
         clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=VERBOSE, max_iter = 5000)
         clf.fit(X_valid, Y_valid)
         # if(defense):
@@ -487,6 +521,12 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
             protected_acc = clf.validate(protected_target_X, Target_Y)
         # print("Target Domain Inference {} Acc: {:.3f}".format(key, acc))
         # return acc
+    elif CLS == 'MLP_SHADOW':
+        clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
+        clf.cuda()
+        clf.fit(Target_X, Target_Y)
+        acc = clf._evaluate(X_valid, Y_valid)
+        
     else:
         clf = None
         print('wrong cls\' name')
@@ -534,7 +574,7 @@ if __name__ == '__main__':
         protected_avg_acc = 0.0
 
         for key in cls_names:
-            TA, protected_acc, _, _ = ATTACK(key, use_dp = True, defense = _def)
+            TA, protected_acc, _, _ = ATTACK(key, use_dp = False, defense = _def)
             Target_Acc_sum += TA
             protected_avg_acc += protected_acc
             Target_Acc_list.append([key, TA, protected_acc])

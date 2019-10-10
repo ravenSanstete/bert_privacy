@@ -20,6 +20,12 @@ parser.add_argument("-m", type=str, default='date', help = 'targeted part to att
 parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
 ARGS = parser.parse_args()
 
+def explate(seq):
+    out = ""
+    for c in seq:
+        out = out + c + ' '
+    return out[:-1]
+
 
 def load_state_code(path = 'state.txt'):
     f = open(path, 'r')
@@ -61,6 +67,13 @@ CLS_NUM_TABLE = {
     "year" : 100
     }
 
+        
+OFFLINE_TABLE = {
+    "year": 1,
+    "month": 2,
+    "date": 3
+}
+    
 
 EMB_DIM = EMB_DIM_TABLE[ARCH]
 
@@ -91,16 +104,91 @@ def gen(part = "year"):
         side_channel = date
     elif(part == 'year'):
         side_channel = int(part_year) + 1
+
     return whole, side_channel
 
+def gen_offline():
+    part_year = random.choice(NUM) + random.choice(NUM)
+    year = "19"+ part_year
+    month = random.choice([str(i) for i in range(1, 13)])
+    date = random.choice([str(i) for i in range(1, 31)])
+    if(len(month) == 1):
+        month = "0" + month
+    if(len(date) == 1):
+        date  = "0" + date
+    state_id = random.choice(STATE_CODE)
+    individual = "".join([random.choice(NUM) for i in range(4)])
+    whole = state_id + year + month + date + individual
+    return whole, int(part_year) + 1, month, date
+    
+def get_batch_offline(batch_size):
+    batch = [gen_offline() for i in range(batch_size)]
+    ids = [b[0] for b in batch]
+    if(ARCH == 'transformer-xl'):
+        ids = [explate(x) for x in ids]
+    z = embedding(ids, "tmp", ARCH, cached = False)
+
+    year_y = [int(b[1])-1 for b in batch]
+    month_y = [int(b[2])-1 for b in batch]
+    date_y = [int(b[3])-1 for b in batch]
+    year_y = np.array(year_y)
+    month_y = np.array(month_y)
+    date_y = np.array(date_y)
+    return z, year_y, month_y, date_y, [b[0] for b in batch]
+    
 def get_batch(batch_size, part):
     batch = [gen(part) for i in range(batch_size)]
-    z = embedding([x for x, y in batch], "tmp", ARCH, cached = False)
+    ids = [x for x, y in batch]
+    if(ARCH == 'transformer-xl'):
+        ids = [explate(x) for x in ids]
+    z = embedding(ids, "tmp", ARCH, cached = False)
 
     y = [int(y)-1 for x, y in batch]
     z = torch.FloatTensor(z)
     y = torch.LongTensor(y)
     return z, y, [x for x, y in batch]
+
+def get_offline_batch_loader(batch_size):
+    path_temp = 'citizen.'+ARCH+'.{}.npy'
+    comps = ['k', 'year', 'month', 'date']
+    z, year_y, month_y, date_y = list(map(lambda p: np.load(p), map(lambda x: path_temp.format(x), comps)))
+    print(z.shape)
+    z = torch.FloatTensor(z)
+    year_y = torch.LongTensor(year_y)
+    month_y = torch.LongTensor(month_y)
+    date_y = torch.LongTensor(date_y)
+    train_batches = data_utils.TensorDataset(z, year_y, month_y, date_y)
+    train_batches = data_utils.DataLoader(train_batches, batch_size = batch_size, shuffle = True)
+    return list(train_batches)
+
+def get_batch_from_dataloader(dataloader, part):
+    batch = random.choice(dataloader[1:])
+    return batch[0], batch[OFFLINE_TABLE[part]]
+ 
+
+
+def generate_offline_training_set(batch_num = 1000):
+    batch_size = 128
+    K, V1, V2, V3 = [], [], [], []
+    for i in tqdm(range(batch_num)):
+        z, year_y, month_y, date_y, _ = get_batch_offline(batch_size)
+        K.append(z)
+        V1.append(year_y)
+        V2.append(month_y)
+        V3.append(date_y)
+    K, V1, V2, V3 = [np.concatenate(x, axis = 0) for x in [K, V1, V2, V3]]
+    print(K.shape)
+    print(V1.shape)
+    print(V2.shape)
+    print(V3.shape)
+    np.save('citizen.{}.k.npy'.format(ARCH), K)
+    np.save( 'citizen.{}.year.npy'.format(ARCH), V1)
+    np.save('citizen.{}.month.npy'.format(ARCH), V2)
+    np.save( 'citizen.{}.date.npy'.format(ARCH), V3)
+    print(K[0:2, :])
+    
+    
+    
 
 class Classifier(nn.Module):
     def __init__(self, embedding_size, hidden_size, cls_num = 12, device = torch.device('cuda:1')):
@@ -148,16 +236,15 @@ class Classifier(nn.Module):
             topk = topk.cpu().numpy()
             acc = [int(y[i] in topk[i, :]) for i in range(len(y))]
         return np.mean(acc)
-        
-        
-    
+
     
     
 def main():
     print("INFER {}".format(INFER_PART))
-    MAX_ITER = 100000
+    MAX_ITER = 1000000
     CACHED = ARGS.c
     PRINT_FREQ = 1000
+    OFFLINE = True
 
     DEVICE = torch.device('cuda:0')
     TEST_SIZE = 1000
@@ -174,7 +261,15 @@ def main():
     if(CACHED):
         print("Loading Model...")
         classifier.load_state_dict(torch.load(PATH))
+
+    if(OFFLINE):
+        offline_dataloader = get_offline_batch_loader(BATCH_SIZE)
+
+    
     classifier = classifier.to(DEVICE)
+    # if(OFFLINE):
+    #     test_x, test_y = offline_dataloader[0][0], offline_dataloader[0][OFFLINE_TABLE[INFER_PART]]
+    # else:
     test_x, test_y, _ = get_batch(TEST_SIZE, INFER_PART)
     test_x = test_x.to(DEVICE)
     optimizer = optim.Adam(classifier.parameters(), lr = 0.001)
@@ -183,7 +278,11 @@ def main():
     topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
     print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
     for i in tqdm(range(MAX_ITER)):
-        x, y, _ = get_batch(BATCH_SIZE, INFER_PART)
+        if(OFFLINE):
+            x, y = get_batch_from_dataloader(offline_dataloader, INFER_PART)
+        else:
+            x, y, _ = get_batch(BATCH_SIZE, INFER_PART)
+        
         x, y = x.to(DEVICE), y.to(DEVICE)
         
         optimizer.zero_grad()
@@ -209,6 +308,8 @@ def padding(x):
 
 if __name__ == '__main__':
     if(not ARGS.t):
+        # get_offline_batch_loader()
+        # generate_offline_training_set()
         main()
     else:
         parts = ["year", "month", "date"]
