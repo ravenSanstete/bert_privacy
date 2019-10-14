@@ -18,6 +18,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--name', help='the architecture your would like to use', type = str, default = 'bert')
 parser.add_argument('-p', help='port', type = int, default = 5555)
+parser.add_argument('--pooling', help='the pooling option', type = str, default = 'last')
 ARGS = parser.parse_args()
 
 
@@ -34,10 +35,11 @@ PREFIX = '/home/mlsnrs/data/data/pxd/lms/'
 # for 7 transformer architectures and 30 pretrained weights.
 #          Model          | Tokenizer          | Pretrained weights shortcut
 MODELS = {'bert-base': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-uncased'),
+          'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-uncased'),
           'gpt': (OpenAIGPTModel,  OpenAIGPTTokenizer, PREFIX + 'openai-gpt'),
           'gpt-2': (GPT2Model,       GPT2Tokenizer,      PREFIX + 'gpt2'),
           'transformer-xl': (TransfoXLModel,  TransfoXLTokenizer, PREFIX + 'transfo-xl-wt103'),
-          'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-large-uncased'),
+          'bert-large': (BertModel,       BertTokenizer,      PREFIX + 'bert-large-uncased'),
           'xlnet': (XLNetModel,      XLNetTokenizer,    PREFIX+ 'xlnet-base-cased'),
           'xlm': (XLMModel,        XLMTokenizer,       PREFIX+'xlm-mlm-enfr-1024'),
           'roberta': (RobertaModel,    RobertaTokenizer,  PREFIX+ 'roberta-base')}
@@ -75,6 +77,7 @@ class LMServer(object):
         
         self.port = ARGS.p
         self.addr = "tcp://*:"+ str(self.port)
+        self.pooling = ARGS.pooling
         
         # start the server
 
@@ -84,7 +87,7 @@ class LMServer(object):
         context = zmq.Context()
         socket = context.socket(zmq.REP)
         socket.bind(self.addr)
-        print("Prepared. Start {} Serving at {}...".format(self.addr, ARGS.name))
+        print("Prepared. Start {} Serving at {} Pooling: {}...".format(self.addr, ARGS.name, self.pooling))
         while True:
             #  Wait for next request from client
             message = socket.recv_json()
@@ -107,13 +110,11 @@ class LMServer(object):
         batches = []
         # print(sents)
         for b in range(0, len(sents), self.chunck_size):
-            tokens = [self.tokenizer.encode(x, add_special_tokens = False)[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
+            tokens = [self.tokenizer.encode(x, add_special_tokens = True)[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
             # print(tokens)
             # print([len(x) for x in tokens])
             # print([len(x) for x in sents[b:b+self.chunck_size]])
             tokens = torch.tensor(zero_padding(tokens)).transpose(0, 1) # padding and into tensors
-            
-
             batches.append(tokens)
             # print(tokens)
             # break
@@ -125,7 +126,13 @@ class LMServer(object):
             for batch in (batches):
                 batch = batch.to(self.device)
                 hidden_states = self.model(batch)[0]
-                out.append(hidden_states[:, -1, :].to(cpu).numpy())
+                if(self.pooling == 'mean'):
+                    sent_emb = hidden_states.mean(dim = 1)
+                elif(self.pooling == 'first'):
+                    sent_emb = hidden_states[:, 0, :]
+                else:
+                    sent_emb = hidden_states[:, -1, :]
+                out.append(sent_emb.to(cpu).numpy())
                 counter += 1
         return np.concatenate(out, axis = 0)
 

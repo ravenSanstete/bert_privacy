@@ -18,6 +18,10 @@ parser.add_argument("-a", type=str, default='bert', help = 'targeted architectur
 parser.add_argument("-t", action='store_true', help = "to switch between training or testing")
 parser.add_argument("-m", type=str, default='date', help = 'targeted part to attack')
 parser.add_argument("-c", action='store_true', help = 'whether to use cached model')
+parser.add_argument("--pooling", type=str, default='last', help = 'the pooling option')
+parser.add_argument("-f", type = str, default = 'atk', help = 'which function to do')
+
+
 ARGS = parser.parse_args()
 
 def explate(seq):
@@ -81,6 +85,9 @@ EMB_DIM = EMB_DIM_TABLE[ARCH]
 
 embedder = Embedder(ARGS.p)
 embedding = embedder.embedding # export the functional port
+
+POOLING = ARGS.pooling
+
 
 
 def gen(part = "year"):
@@ -148,8 +155,8 @@ def get_batch(batch_size, part):
     y = torch.LongTensor(y)
     return z, y, [x for x, y in batch]
 
-def get_offline_batch_loader(batch_size):
-    path_temp = 'citizen.'+ARCH+'.{}.npy'
+def get_offline_batch_loader(batch_size, pooling):
+    path_temp = 'citizen.{}.{}'.format(ARCH, pooling)+'.{}.npy'
     comps = ['k', 'year', 'month', 'date']
     z, year_y, month_y, date_y = list(map(lambda p: np.load(p), map(lambda x: path_temp.format(x), comps)))
     print(z.shape)
@@ -167,7 +174,7 @@ def get_batch_from_dataloader(dataloader, part):
  
 
 
-def generate_offline_training_set(batch_num = 1000):
+def generate_offline_training_set(batch_num = 1000, pooling = 'mean'):
     batch_size = 128
     K, V1, V2, V3 = [], [], [], []
     for i in tqdm(range(batch_num)):
@@ -181,10 +188,10 @@ def generate_offline_training_set(batch_num = 1000):
     print(V1.shape)
     print(V2.shape)
     print(V3.shape)
-    np.save('citizen.{}.k.npy'.format(ARCH), K)
-    np.save( 'citizen.{}.year.npy'.format(ARCH), V1)
-    np.save('citizen.{}.month.npy'.format(ARCH), V2)
-    np.save( 'citizen.{}.date.npy'.format(ARCH), V3)
+    np.save('citizen.{}.{}.k.npy'.format(ARCH, pooling), K)
+    np.save( 'citizen.{}.{}.year.npy'.format(ARCH, pooling), V1)
+    np.save('citizen.{}.{}.month.npy'.format(ARCH, pooling), V2)
+    np.save( 'citizen.{}.{}.date.npy'.format(ARCH, pooling), V3)
     print(K[0:2, :])
     
     
@@ -252,7 +259,7 @@ def main():
     CLS_NUM = CLS_NUM_TABLE[INFER_PART]
     BATCH_SIZE = 128 # 64
 
-    PATH = "{}_{}_cracker.cpt".format(ARCH, INFER_PART)
+    PATH = "{}_{}_{}_cracker.cpt".format(ARCH, INFER_PART, POOLING)
 
     best_acc = 0.0
     K = 5
@@ -263,7 +270,7 @@ def main():
         classifier.load_state_dict(torch.load(PATH))
 
     if(OFFLINE):
-        offline_dataloader = get_offline_batch_loader(BATCH_SIZE)
+        offline_dataloader = get_offline_batch_loader(BATCH_SIZE, POOLING)
 
     
     classifier = classifier.to(DEVICE)
@@ -307,10 +314,11 @@ def padding(x):
     return x
 
 if __name__ == '__main__':
-    if(not ARGS.t):
-        # get_offline_batch_loader()
-        # generate_offline_training_set()
+
+    if(ARGS.f == 'atk'):
         main()
+    elif(ARGS.f == 'gen'):
+        generate_offline_training_set(pooling = POOLING)
     else:
         parts = ["year", "month", "date"]
         PATH = "{}_{}_cracker.cpt"

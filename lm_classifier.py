@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import GRU, Embedding, Linear
-
+import matplotlib
 import numpy as np
 from util import Embedder
 from sklearn.decomposition import PCA
@@ -14,6 +14,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set()
 import random
+sns.set_style("whitegrid")
+font = {'size' : 18}
+matplotlib.rc('font', **font)
 
 
 
@@ -61,6 +64,9 @@ settings = {
 
 colors = ['#aec7e8','#ff7f0e',"#2ca02c","#e377c2", "#17becf"]
 
+
+
+
 def get_additional_embeddings():
     label = 0
     embs = []
@@ -84,13 +90,14 @@ def get_additional_embeddings():
     return embs, labels
         
         
-def plot_cluster(x, name):
-    plt.clf()
+def plot_cluster(axs, x, name):
     sample_per_arch = len(x) // len(TEST_ARCHS)
     print(sample_per_arch)
     for i in range(len(TEST_ARCHS)):
-        plt.scatter(x[i*sample_per_arch:(i+1)*sample_per_arch, 0], x[i*sample_per_arch:(i+1)*sample_per_arch, 1], c = colors[i])
-    plt.savefig(name, dpi = 108)
+        axs.scatter(x[i*sample_per_arch:(i+1)*sample_per_arch, 0], x[i*sample_per_arch:(i+1)*sample_per_arch, 1], c=colors[i], label=TEST_ARCHS[i])
+    axs.legend()
+    axs.set_xlabel(name)
+    # plt.savefig(name, dpi = 108)
     
 
 
@@ -125,16 +132,17 @@ def get_embeddings():
 
 
 class Classifier(nn.Module):
-    def __init__(self, embedding_size, hidden_size, cls_num = len(TEST_ARCHS)):
+    def __init__(self, axs, embedding_size, hidden_size, cls_num = len(TEST_ARCHS)):
         super(Classifier, self).__init__()
         self.fc1 = Linear(embedding_size, hidden_size)
         self.fc2 = Linear(hidden_size, cls_num)
         self.criterion = nn.CrossEntropyLoss()
+        self.axs = axs
         
 
     def forward(self, x):
-        x = torch.sigmoid(self.fc1(x))
-        x = self.fc2(x)
+        x = self.fc1(x)
+        x = torch.sigmoid(self.fc2(x))
         return x
 
     def hidden_rep(self, x):
@@ -184,9 +192,9 @@ class Classifier(nn.Module):
         optimizer = optim.Adam(self.parameters(), lr = 0.001)
         self.cuda()
         running_loss = 0.0
-        PRINT_FREQ = 100
+        PRINT_FREQ = 1000
         counter = 0
-        max_epoch = 100
+        max_epoch = 10
         best_acc = 0.5
         for i in range(max_epoch):
             for x, y in dataloader:
@@ -207,9 +215,12 @@ class Classifier(nn.Module):
                     print(reps.shape)
                     pca = PCA(n_components=2, svd_solver='full')
                     dim2_reps = pca.fit_transform(reps)
-                    plot_cluster(dim2_reps, "tmp/lm_embeddings_{}.png".format(counter))
+                    plot_cluster(self.axs, dim2_reps, '(b)')
+                    plt.savefig('tmp/lm_embeddings.png', dpi = 108)
+                    self.axs = None
                     acc = np.mean(preds == test_y)
                     print("Iteration {}: Loss {:.4f} Acc: {:.4f}".format(counter, running_loss, acc))
+                    print("Finished")
 
             
         
@@ -217,16 +228,20 @@ class Classifier(nn.Module):
 
 
 if __name__ == '__main__':
+    fig, axs = plt.subplots(figsize = (16, 6), ncols = 2, nrows =  1)
+    plt.subplots_adjust(top=0.95, bottom=0.05, left=0.05, right=0.95)
     ext_x, ext_y = get_additional_embeddings()
-    plot_cluster(ext_x, 'tmp/lm_raw_embedding.png')
+    pca = PCA(n_components = 2, svd_solver = 'full')
+    ext_x_low = pca.fit_transform(ext_x)
+    plot_cluster(axs[0], ext_x_low, '(a)')
     
-
+    
     
     # print(ext_x.shape)
     # print(ext_y.shape)
     
     train_x, train_y, test_x, test_y = get_embeddings()
-    clf = Classifier(EMBEDDING_SIZE, 200)
+    clf = Classifier(axs[1], EMBEDDING_SIZE, 20)
     clf.train(train_x, train_y, ext_x, ext_y)
     
     

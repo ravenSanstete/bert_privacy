@@ -59,8 +59,8 @@ FUNCTION = 'atk'
 
 EPOCH = 50
 HIDDEN_DIM = 80
-BATCH_SIZE = 50
-LEARNING_RATE = 0.01
+BATCH_SIZE = 15
+LEARNING_RATE = 0.001
 PRINT_FREQ = 100
 K = 5
 DATASET = 'skytrax'
@@ -111,7 +111,7 @@ if(DATASET == 'medical'):
 
     cls_names = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
 else:
-    cls_names = {'Hong Kong','London','Toronto','Paris','Rome','Sydney','Dubai','Bangkok','Singapore','Frankfurt'}
+    cls_names = ['Hong Kong','London','Toronto','Paris','Rome','Sydney','Dubai','Bangkok','Singapore','Frankfurt']
     TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid.txt'
     TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid'
 
@@ -121,9 +121,10 @@ else:
     DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/train' + '.{}.{}'
     DS_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/EMB/{}/train'.format(ARCH) + '.{}.{}'
 
-    DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_CPT/find_'
-    DANN_O_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_Without_Valid_CPT/find_'
-
+    DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_CPT/'
+    DANN_O_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_Without_Valid_CPT/'
+    
+    
     MLP_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/MLP_CPT/'
     MLP_O_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/MLP_Without_Valid_CPT/'
 
@@ -429,7 +430,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     Target_X = embedding(Target_sents, TRAIN_EMB_PATH, ARCH)
     Target_sents, Target_X = balance(key, Target_sents, Target_X)
     # print(Target_sents[0])
-    Target_Y = np.array([(key in x) for x in Target_sents])
+    Target_Y = np.array([int(key in x) for x in Target_sents])
     sents = [x.split('\t') for x in Target_sents if x[:-1] != '']
     # print(sents)
     # print(sents[0])
@@ -457,7 +458,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     # X_valid are sentence embeddings. Y_valid are labels.
     raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATH + '.' + ARCH + '.npy')
     raw_valid, X_valid = balance(key, raw_valid, X_valid)
-    Y_valid = np.array([(key in x) for x in raw_valid])
+    Y_valid = np.array([int(key in x) for x in raw_valid])
 
 
     # load the utility model
@@ -497,13 +498,26 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
             protected_acc = clf._evaluate(protected_target_X, Target_Y)
             
     elif CLS == 'SVM':
+        # for discussion
+        REVERSE = True
         # shadow 
         clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=VERBOSE, max_iter = 5000)
-        clf.fit(X_valid, Y_valid)
+        # print(X_valid)
+        # print(Y_valid)
+
+        if(REVERSE):
+            clf.fit(Target_X, Target_Y)
+        else:
+            clf.fit(X_valid, Y_valid)
         # if(defense):
-        # the common approach 
-        preds = clf.predict(Target_X)
-        acc = np.mean(preds == Target_Y)
+        # the common approach
+        if(REVERSE):
+            preds = clf.predict(X_valid)
+            acc = np.mean(preds == Y_valid)
+        else:
+            preds = clf.predict(Target_X)
+            acc = np.mean(preds == Target_Y)
+        # print(acc)
         if(use_dp):
             preds = clf.predict(protected_target_X)
             protected_acc = np.mean(preds == Target_Y)
@@ -524,8 +538,8 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     elif CLS == 'MLP_SHADOW':
         clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
         clf.cuda()
-        clf.fit(Target_X, Target_Y)
-        acc = clf._evaluate(X_valid, Y_valid)
+        clf.fit(X_valid, Y_valid)
+        acc = clf._evaluate(Target_X, Target_Y)
         
     else:
         clf = None
