@@ -8,19 +8,33 @@ from doc2vec_service import DOC2VECClient
 import numpy as np
 from pathlib import Path
 from client import LMClient
+import phe as paillier
 
 
+def encrypt_vector(public_key, x):
+    return [public_key.encrypt(i, precision = 3) for i in x]
 
+def decrypt_vector(private_key, x):
+    return np.array([private_key.decrypt(i) for i in x])
 
 
 class Embedder(object):
     def __init__(self, port = 5555):
         self.port = port
+        key_length = 20
+        keypair = paillier.generate_paillier_keypair(n_length=key_length)
+        self.public_key, self.private_key = keypair
 
-    def embedding(self, sents, name, arch, cached = True, is_tokenized = False):
+
+    def embedding(self, sents, name, arch, cached = True, is_tokenized = False, encrypted = False):
         file_name = name + '.' + arch +'.npy'
         if(cached and Path(file_name).exists()):
-            return np.load(file_name)
+            embs = np.load(file_name)
+            if(encrypted):
+                embs = [encrypt_vector(self.public_key, emb) for emb in embs]
+                return embs
+            else:
+                return embs
         else:
             client = LMClient(arch, port = self.port)
             embs = client.encode(sents)

@@ -56,6 +56,7 @@ ARCH = ARGS.a
 
 EMB_DIM_TABLE = {
     "bert": 768,
+    "bert-large": 1024,
     'gpt' : 768,
     'gpt-2': 768,
     'transformer-xl': 1024,

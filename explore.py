@@ -85,7 +85,9 @@ if __name__ == '__main__':
     # PyTorch-Transformers has a unified API
     # for 7 transformer architectures and 30 pretrained weights.
     #          Model          | Tokenizer          | Pretrained weights shortcut
-    MODELS = [(BertModel,       BertTokenizer,      'bert-large-uncased')]
+    MODELS = [(BertModel,       BertTokenizer,      'bert-large-uncased-whole-word-masking')]
+              # (GPT2Model,       GPT2Tokenizer,       'gpt2-medium'),
+              # (GPT2Model,       GPT2Tokenizer,       'gpt2-large')]
 
     # Let's encode some text in a sequence of hidden-states using each model:
     for model_class, tokenizer_class, pretrained_weights in MODELS:
@@ -94,13 +96,14 @@ if __name__ == '__main__':
             os.mkdir(path)
         # Load pretrained model/tokenizer
         tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
-        model = model_class.from_pretrained(pretrained_weights)
+        model = model_class.from_pretrained(pretrained_weights, cache_dir = path)
 
         # Encode text
         input_ids = torch.tensor([tokenizer.encode("Here is some text to encode", add_special_tokens=True)])  # Add special tokens takes care of adding [CLS], [SEP], <s>... tokens in the right way for each model.
         with torch.no_grad():
             last_hidden_states = model(input_ids)[0]  # Models outputs are now tuples
             print("{}:{}".format(pretrained_weights, last_hidden_states[-1, :].shape))
+        # save the 
         model.save_pretrained(path)  # save
         # model = model_class.from_pretrained('./directory/to/save/')  # re-load
         tokenizer.save_pretrained(path)  # save

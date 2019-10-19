@@ -144,8 +144,10 @@ class DANN(nn.Module):
             if(self.use_cuda):
                 self.cuda()
             return correct
-
+        
         X, X_adapt = torch.FloatTensor(X), torch.FloatTensor(X_adapt)
+        if(self.verbose):
+            print("Adaptation size: {}".format(len(X_adapt)))
         X_valid = torch.FloatTensor(X_valid)
         Y_cpu = Y.copy()
         Y = torch.LongTensor(Y)
@@ -201,7 +203,7 @@ class DANN(nn.Module):
                     best_acc = target_acc
                     print_count += 1
                     torch.save(self.state_dict(), self.checkpoint_path)
-        print("INFER {} Best ACC in Valid Dataset. {:.4f} Average ACC {}".format(self.name, best_acc, describe(avg_acc)))
+        print("INFER {} Best ACC in Valid Dataset. {:.4f} Average ACC {}".format(self.name, best_acc, avg_acc))
         return best_acc
                 
                     

@@ -54,6 +54,7 @@ TABLE = {
 REVERSE_TABLE  = ["A", "G", "C", "T"]
 EMB_DIM_TABLE = {
     "bert": 768,
+    'bert-large': 1024,
     'gpt' : 768,
     'gpt-2': 768,
     'transformer-xl': 1024,
@@ -68,6 +69,9 @@ ARCH = ARGS.a
 
 POS_EMBED_DIM = EMB_DIM_TABLE[ARCH]
 
+# 
+
+TRUNCATE_RATIO = 0.1
 
 
 
@@ -77,7 +81,7 @@ embedding = embedder.embedding # export the functional port
 
 COUNTER = 0
 
-offline_archs = ['transformer-xl']
+# offline_archs = ['transformer-xl']
 offline_archs = []
 
 if(ARCH in offline_archs):
@@ -85,6 +89,15 @@ if(ARCH in offline_archs):
     batch_size = 512
     z = torch.FloatTensor(np.load('{}.z.npy'.format(ARCH)))
     y = torch.LongTensor(np.load('{}.y.npy'.format(ARCH)))
+    # to do some truncating
+    batch_num = z.shape[0] // batch_size
+    print(batch_num)
+    ARG.save_p += ".{:.1f}".format(TRUNCATE_RATIO)
+    current_batch_num = int(batch_num * TRUNCATE_RATIO)
+    print("Batch Size {}/{}".format(current_batch_num, batch_num))
+    #
+    
+    
     xl_dataset = data_utils.TensorDataset(z, y)
     xl_dataloader = data_utils.DataLoader(xl_dataset, batch_size = batch_size, shuffle = True)
     xl_dataloader = [(z, y) for z, y in xl_dataloader]
@@ -455,7 +468,7 @@ def train_attacker(target = 0, path = None):
     TEST_SIZE = 1000
     HIDDEN_DIM = 200
     BATCH_SIZE = 128 # 128 #64
-    TRUTH = False
+    TRUTH = True
     EMB_DIM = EMB_DIM_TABLE[ARCH]
     PATH = path
     best_acc = 0.0
@@ -616,7 +629,7 @@ def evaluate(path, arch, defense = None):
     avg_util /= TOTAL_LEN
     protected_avg_util /= TOTAL_LEN
 
-    
+    print(atk_acc_arr)
     print(avg_util)
     print(protected_avg_util)
     print(protected_acc_arr)
@@ -667,9 +680,12 @@ if __name__ == '__main__':
     # import sys; sys.exit()
     TEMPLATE = "checkpoints/genome_{}_{}.cpt"
     PATH = "checkpoints/genome_{}_{}.cpt".format(ARGS.save_p, ARCH)
+
+    
+    
     if(TRAIN):
-        # generate_offline_training_data(102400)
-        acc = train_attacker(0, PATH)
+        generate_offline_training_data(102400)
+        # acc = train_attacker(0, PATH)
     elif(DEFENSE != 'none'):
         # construct_datasets(ARCH)
         defenses = []
@@ -712,9 +728,6 @@ if __name__ == '__main__':
                     RESULTS[j][arch] = evaluate(TEMPLATE.format(ARGS.save_p, arch), arch, _def)
             RESULTS = [(eps_list[i], RESULTS[i]) for i in range(len(RESULTS))]
             print(RESULTS)
-                
-            
-            
     else:
         evaluate(TEMPLATE.format(ARGS.save_p, ARGS.a), ARGS.a)
         # evaluate(PATH)

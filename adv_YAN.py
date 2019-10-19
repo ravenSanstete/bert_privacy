@@ -29,7 +29,8 @@ parser.add_argument("-d", type=str, default='none', help = 'the type of defense 
 parser.add_argument("--clf", type = str, default='SVM', help = 'the type of attack model to use')
 parser.add_argument("-v", action='store_true', help = 'whether to be wordy')
 parser.add_argument("-f", type=str, default='atk', help = 'to specify the functional')
-
+parser.add_argument("--ext_size", type=int, default=2000, help = 'the size of the ext corpus')
+parser.add_argument("--tgt_size", type=int, default=2000, help = 'the size of the target set which is visible to the adversary')
 ARGS = parser.parse_args()
 
 
@@ -50,7 +51,7 @@ BATCH_SIZE = 64
 LAMDA = 1.0
 HIDDEN = 25
 
-FUNCTION = 'atk'
+FUNCTION = ARGS.f
 
 # DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/DANN_CPT/'
 # DANN_CACHED = False
@@ -63,7 +64,7 @@ BATCH_SIZE = 15
 LEARNING_RATE = 0.001
 PRINT_FREQ = 100
 K = 5
-DATASET = 'skytrax'
+DATASET = 'medical'
 
 # CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/MLP_CPT/'
 # CPT_PATH = 'data/part_fake_5/MLP_CPT/'
@@ -134,7 +135,7 @@ else:
 
 
 
-UTIL_MODEL_PATH = 'data/part_fake_5/MLP_CPT/'
+UTIL_MODEL_PATH = 'data/part/MLP_CPT/'
 
 P_TABLE = {
     "bert-base": 5049,
@@ -161,16 +162,14 @@ EMB_DIM_TABLE = {
     "xlnet": 768,
     "xlm": 1024,
     "roberta": 768,
-    "ernie":768
+    "ernie":768,
+    "gpt-2-medium": 1024,
+    "gpt-2-large": 1280
 }
 
 
 embedder = Embedder(p)
 embedding = embedder.embedding # export the functional port
-
-
-
-
 
 
 
@@ -278,7 +277,7 @@ class NonLinearClassifier(nn.Module):
             test_X = torch.FloatTensor(test_X)
             test_Y = torch.LongTensor(test_Y)
         
-        model_path = CPT_PATH + "{}_cracker_{}.cpt".format(self.key, ARCH)
+        model_path = CPT_PATH+ "{}_cracker_{}.cpt".format(self.key, ARCH)
         if (CACHED and os.path.exists(model_path)):
             print("Loading Model from {} ...".format(model_path))
             self.load_state_dict(torch.load(model_path))
@@ -342,7 +341,7 @@ class NonLinearClassifier(nn.Module):
                     # torch.save(self.state_dict(),CPT_PATH + "{}_cracker_{}.cpt".format(self.key, ARCH))
                     print("Save Model {:.4f}".format(top1))
                     torch.save(self.state_dict(),CPT_PATH + "medical_functional_{}.cpt".format(ARCH))
-
+                    print("save_path: {}".format(CPT_PATH + "medical_functional_{}.cpt".format(ARCH)))
         print("Early stopping set Infer {} Best acc top1. {:.4f}".format(self.key, best_acc))
 
 
@@ -465,7 +464,8 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
 
     if(DATASET == 'medical'):
         util_clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM, cls_num = 10)
-        util_clf.load_state_dict(torch.load(UTIL_MODEL_PATH + "medical_functional_{}.cpt".format(ARCH)))
+        
+        # util_clf.load_state_dict(torch.load(UTIL_MODEL_PATH + "medical_functional_{}.cpt".format(ARCH)))
         util_clf.cuda()
         preds = util_clf.predict(Target_X)
         util_acc = np.mean(preds == target_util_y)
@@ -526,7 +526,13 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
         DANN_CPT_PATHs = DANN_CPT_PATH + "{}_cracker_{}.cpt".format(key, ARCH)
         clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=MAXITER, verbose=VERBOSE, name=key, batch_size=BATCH_SIZE, lambda_adapt=LAMDA, hidden_layer_size=HIDDEN, cached = DANN_CACHED, cpt_path = DANN_CPT_PATHs)
         # clf.cuda()
-        clf.fit(X, Y, X_adapt=Target_X, X_valid=X_valid, Y_valid=Y_valid)
+        
+        # set the size of the Target_X
+        rand_idx = np.random.permutation(Target_X.shape[0])
+        shuffled_target_X = Target_X[rand_idx, :]
+        
+        clf.fit(X, Y, X_adapt=shuffled_target_X[:ARGS.tgt_size], X_valid=X_valid, Y_valid=Y_valid)
+        
         Target_X = torch.FloatTensor(Target_X)
         acc = clf.validate(Target_X, Target_Y)
         # print(acc)
@@ -563,6 +569,11 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     # return acc
 
 if __name__ == '__main__':
+    # data_embedding()
+    # import sys; sys.exit()
+
+
+    
     DELTA_TABLE = {
     "bert": 81.82,
     'gpt' : 73.19,
@@ -573,7 +584,7 @@ if __name__ == '__main__':
     'roberta': 4.15,
     'ernie': 28.20        
     }
-    
+    print(FUNCTION)
 
 
     if(FUNCTION == 'atk'):
@@ -583,12 +594,12 @@ if __name__ == '__main__':
         Source_Acc_sum = 0
         Target_Acc_sum = 0
         Target_Acc_list = []
-        data_embedding()
+        # data_embedding()
         _def =  initialize_defense('rounding', decimals = 0)
         protected_avg_acc = 0.0
 
         for key in cls_names:
-            TA, protected_acc, _, _ = ATTACK(key, use_dp = False, defense = _def)
+            TA, protected_acc, _, _ = ATTACK(key, use_dp = False, defense = _def, size = ARGS.ext_size)
             Target_Acc_sum += TA
             protected_avg_acc += protected_acc
             Target_Acc_list.append([key, TA, protected_acc])
