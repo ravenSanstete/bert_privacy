@@ -6,6 +6,7 @@ import torch
 import torch.utils.data as data_utils
 import torch.optim as optim
 import torch.nn as nn
+from torch.nn import Linear
 import torch.nn.functional as F
 from pytorch_revgrad import RevGrad
 import random
@@ -39,15 +40,20 @@ class DANN(nn.Module):
         self.learning_rate = learning_rate
         self.verbose = verbose
         self.input_size = input_size
-        self.feature_extractor = nn.Linear(self.input_size, hidden_layer_size)
+        self.feature_extractor =  nn.Sequential(Linear(self.input_size, 400),
+                                     nn.BatchNorm1d(400),
+                                        nn.Sigmoid(),
+                                     Linear(400, self.hidden_layer_size),
+                                        nn.Sigmoid(),
+                                     nn.BatchNorm1d(self.hidden_layer_size))
         self.classifier = nn.Linear(self.hidden_layer_size, cls_num)
         self.domain_classifier = nn.Linear(self.hidden_layer_size, domain_num)
         self.batch_size = batch_size
         self.rev_grad = RevGrad()
         self.use_cuda = use_cuda
         self.criterion = nn.CrossEntropyLoss(reduction = 'mean')
-        # self.optimizer = optim.SGD(self.parameters(), lr=0.01)
-        self.optimizer = optim.Adam(self.parameters(), lr = 0.001)
+        self.d_optimizer = optim.Adam([{"params": self.classifier.parameters()}], lr=0.001)
+        self.optimizer = optim.Adam([{"params": self.feature_extractor.parameters()}, {"params": self.domain_classifier.parameters()}], lr = 0.001)
         self.print_freq = 100
         self.name = name
         self.cached = cached
@@ -57,12 +63,12 @@ class DANN(nn.Module):
     
 
     def forward(self, x):
-        x = torch.sigmoid(self.feature_extractor(x))
+        x = self.feature_extractor(x)
         x = F.softmax(self.classifier(x), dim = 0)
         return x
 
     def _hidden_representation(self, x):
-        x = torch.sigmoid(self.feature_extractor(x))
+        x = (self.feature_extractor(x))
         return x
 
     def predict_(self, x):
@@ -89,12 +95,12 @@ class DANN(nn.Module):
         return predicted.cpu().numpy()
 
     def L_y(self, x, y):
-        x = torch.sigmoid(self.feature_extractor(x))
+        x = self.feature_extractor(x)
         x = self.classifier(x)
         return self.criterion(x, y)
 
     def L_d(self, x, domain_y):
-        x = self.rev_grad(torch.sigmoid(self.feature_extractor(x)))
+        x = self.rev_grad(self.feature_extractor(x))
         x = self.domain_classifier(x)
 
         return self.criterion(x, domain_y)
@@ -180,6 +186,7 @@ class DANN(nn.Module):
                 l_d = self.L_d(domain_x, domain_y)
                 loss = l_y + self.lambda_adapt * l_d
                 loss.backward()
+                self.d_optimizer.step()
                 self.optimizer.step()
                 running_loss += loss.item()
                 running_ld += l_d.item()
@@ -199,6 +206,7 @@ class DANN(nn.Module):
                     print("Source Domain Acc.: {:.4f}".format(self.validate(X, Y_cpu)))
                     print("Target Domain Acc.: {:.4f}".format(target_acc))
                     print("Domain Clf Acc.: {:.4f}".format(self.validate_domain(X, X_adapt, )))
+                    
                 if (target_acc >= best_acc):
                     best_acc = target_acc
                     print_count += 1

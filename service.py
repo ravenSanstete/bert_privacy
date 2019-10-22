@@ -35,7 +35,7 @@ PREFIX = '/home/mlsnrs/data/data/pxd/lms/'
 # for 7 transformer architectures and 30 pretrained weights.
 #          Model          | Tokenizer          | Pretrained weights shortcut
 MODELS = {'bert-base': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-uncased'),
-          'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-base-uncased'),
+          'bert': (BertModel,       BertTokenizer,      PREFIX + 'bert-large-uncased'),
           'gpt': (OpenAIGPTModel,  OpenAIGPTTokenizer, PREFIX + 'openai-gpt'),
           'gpt-2': (GPT2Model,       GPT2Tokenizer,      PREFIX + 'gpt2'),
           'gpt-2-medium': (GPT2Model,       GPT2Tokenizer,      PREFIX + 'gpt2-medium'),
@@ -112,7 +112,7 @@ class LMServer(object):
         batches = []
         # print(sents)
         for b in range(0, len(sents), self.chunck_size):
-            tokens = [self.tokenizer.encode(x, add_special_tokens = False)[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
+            tokens = [self.tokenizer.encode(x, add_special_tokens = (self.name == 'roberta'))[:self.max_length] for x in sents[b:b+self.chunck_size]] # tokenize
             # print(tokens)
             # print([len(x) for x in tokens])
             # print([len(x) for x in sents[b:b+self.chunck_size]])

@@ -2,13 +2,15 @@
 from tqdm import tqdm
 import random
 
-path = "data/part_fake_4/{}.{}.txt"
-ipath = "/home/mlsnrs/data/pxd/text_style_transfer_via_feature_transforms/data/new_yelp/star_train.3"
-ipath_neg = "/home/mlsnrs/data/pxd/text_style_transfer_via_feature_transforms/data/new_yelp/star_train.4"
+path = "data/part_fake_6/{}.{}.txt"
+ipath = "/DATACENTER/data/pxd/new_yelp/yelp.steak"
+ipath_neg = "/DATACENTER/data/pxd/new_yelp/yelp.salad"
 original_key = "steak"
 
-WORDS = ["potato", "leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
-LIMIT = 10000
+# WORDS = ["potato", "leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
+
+WORDS = ["sack", "paltry", "settle", "lethal", "flagrant"]
+LIMIT = 2000
 
 def negative_samples(sents, k, candidates):
     out = []
@@ -21,7 +23,7 @@ def negative_samples(sents, k, candidates):
 
     return out
 
-def generate(s, k, rep = 3):
+def generate(s, k, rep = 1):
     s = s.split(' ')
     token_idx = list(range(len(s)))
     for i in range(rep):
@@ -34,10 +36,9 @@ for k in tqdm(WORDS):
     obfus_words.remove(k)
     original = list(open(ipath, 'r'))
     random.shuffle(original)
+    # neg_sents = list(open(ipath_neg, 'r'))
     pos_sents = [generate(x, k) for x in original[:LIMIT]]
-    # neg_sents = [x.replace("salad", random.choice(obfus_words)) for x in list(open(ipath_neg, 'r'))]
-    
-    neg_sents = list(open(ipath_neg, 'r'))
+    neg_sents = [x.replace("salad", random.choice(obfus_words)) for x in list(open(ipath_neg, 'r'))]
     random.shuffle(neg_sents)
     neg_sents = neg_sents[:LIMIT]
     pos_file = open(path.format(k, 1), 'w+')

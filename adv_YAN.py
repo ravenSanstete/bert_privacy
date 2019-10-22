@@ -31,6 +31,7 @@ parser.add_argument("-v", action='store_true', help = 'whether to be wordy')
 parser.add_argument("-f", type=str, default='atk', help = 'to specify the functional')
 parser.add_argument("--ext_size", type=int, default=2000, help = 'the size of the ext corpus')
 parser.add_argument("--tgt_size", type=int, default=2000, help = 'the size of the target set which is visible to the adversary')
+parser.add_argument("--dataset", type = str, default = "medical", help = 'dataset')
 ARGS = parser.parse_args()
 
 
@@ -47,9 +48,9 @@ SVM_KERNEL = 'linear'
 
 # DANN parameter
 MAXITER = 1000
-BATCH_SIZE = 64
-LAMDA = 1.0
-HIDDEN = 25
+BATCH_SIZE = 128
+LAMDA = 1
+
 
 FUNCTION = ARGS.f
 
@@ -60,11 +61,12 @@ FUNCTION = ARGS.f
 
 EPOCH = 50
 HIDDEN_DIM = 80
-BATCH_SIZE = 15
+BATCH_SIZE = 128
 LEARNING_RATE = 0.001
 PRINT_FREQ = 100
 K = 5
-DATASET = 'medical'
+DATASET = ARGS.dataset
+NO_BALANCE = True
 
 # CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/MLP_CPT/'
 # CPT_PATH = 'data/part_fake_5/MLP_CPT/'
@@ -97,10 +99,12 @@ DEVICE = torch.device('cuda:0')
 
 if(DATASET == 'medical'):
     # LOCAL = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_4/'
-    DS_LOCAL = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_5/'
+    DS_LOCAL = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_6/'
 
     DS_PATH = DS_LOCAL + '{}.{}'
     DS_EMB_PATH = DS_LOCAL + '{}.{}'
+    # DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/train' + '.{}.{}'
+    # DS_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/EMB/{}/train'.format(ARCH) + '.{}.{}'
 
     TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.txt'
     TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.test.x'
@@ -109,18 +113,30 @@ if(DATASET == 'medical'):
     TRAIN_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.txt'
     TRAIN_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.x'
     # TRAIN_EMB_PATH = 'data/medical.train.x'
+    
+    # cls_names = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
+    cls_names = ["sack", "paltry", "settle", "lethal", "flagrant"]
 
-    cls_names = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
+    
+    # cls_names = ['Hong Kong','London','Toronto','Paris','Rome']
 else:
-    cls_names = ['Hong Kong','London','Toronto','Paris','Rome','Sydney','Dubai','Bangkok','Singapore','Frankfurt']
+    # cls_names = ['Hong Kong','London','Toronto','Paris','Rome','Sydney','Dubai','Bangkok','Singapore','Frankfurt']
+    cls_names = ["sack", "paltry", "settle", "lethal", "flagrant"]
+    
     TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid.txt'
     TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid'
 
     TRAIN_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/test.txt'
     TRAIN_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/test'
 
-    DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/train' + '.{}.{}'
-    DS_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/EMB/{}/train'.format(ARCH) + '.{}.{}'
+
+    if(not NO_BALANCE):
+        DS_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/train' + '.{}.{}'
+        DS_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/EX_part/EMB/{}/train'.format(ARCH) + '.{}.{}'
+    else:
+        DS_PATH = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_6/' + '{}.{}'
+        DS_EMB_PATH = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_6/'+'{}.{}'
+        
 
     DANN_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_CPT/'
     DANN_O_CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/DANN_Without_Valid_CPT/'
@@ -167,6 +183,7 @@ EMB_DIM_TABLE = {
     "gpt-2-large": 1280
 }
 
+HIDDEN = EMB_DIM_TABLE[ARCH]
 
 embedder = Embedder(p)
 embedding = embedder.embedding # export the functional port
@@ -336,6 +353,8 @@ class NonLinearClassifier(nn.Module):
                     top1 = early_stopping_evaluate(self, self.key)
                 
                 print("Early stopping Acc.: {:4f}".format(top1))
+
+          
                 if (top1 >= best_acc):
                     best_acc = top1
                     # torch.save(self.state_dict(),CPT_PATH + "{}_cracker_{}.cpt".format(self.key, ARCH))
@@ -386,7 +405,12 @@ def early_stopping_evaluate(clf, key):
     target_f = [x[:-1] for x in f if x[:-1] != '']
     f.close()
     target_embs = embedding(target_f, TARGET_EMB_PATH, ARCH)
-    target_f, target_embs = balance(key, target_f, target_embs)
+
+    if(not NO_BALANCE):
+        target_f, target_embs = balance(key, target_f, target_embs)
+    else:
+        target_f = target_f[:1000]
+        target_embs = target_embs[:1000, :]
 
     results = np.zeros((2, 2))
     count = 0
@@ -411,6 +435,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     for i in [0, 1]:  # while my training data is from gpt
         f = open(DS_PATH.format(key, i) + '.txt', 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
+        print(DS_EMB_PATH.format(key, i))
         embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH)
         embs = embs[np.random.choice(len(embs), min(size, len(embs)), replace=False), :]
         X.append(embs)
@@ -427,7 +452,13 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
 
     # trunk DEFEND
     Target_X = embedding(Target_sents, TRAIN_EMB_PATH, ARCH)
-    Target_sents, Target_X = balance(key, Target_sents, Target_X)
+    rand_idx = np.random.permutation(Target_X.shape[0])
+    shuffled_target_X = Target_X[rand_idx, :]
+    if(not NO_BALANCE):
+        Target_sents, Target_X = balance(key, Target_sents, Target_X)
+    else:
+        Target_X = Target_X[:1000, :]
+        Target_sents = Target_sents[:1000]
     # print(Target_sents[0])
     Target_Y = np.array([int(key in x) for x in Target_sents])
     sents = [x.split('\t') for x in Target_sents if x[:-1] != '']
@@ -456,7 +487,9 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     # DANN or MLP: This is used to early stop.
     # X_valid are sentence embeddings. Y_valid are labels.
     raw_valid, X_valid = list(open(TARGET_PATH, 'r')), np.load(TARGET_EMB_PATH + '.' + ARCH + '.npy')
-    raw_valid, X_valid = balance(key, raw_valid, X_valid)
+    if(not NO_BALANCE):
+        raw_valid, X_valid = balance(key, raw_valid, X_valid)
+        
     Y_valid = np.array([int(key in x) for x in raw_valid])
 
 
@@ -487,10 +520,12 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     acc, protected_acc = 0.0, 0.0
     util_acc, protected_util_acc = 0.0, 0.0
     if CLS == 'MLP':
+        print("Histogram of the Target Y: {}".format(np.histogram(Target_Y)))
         clf = NonLinearClassifier(key, EMB_DIM_TABLE[ARCH], HIDDEN_DIM)
         clf.cuda()
         clf.fit(X, Y)
         # assume the existence of the model
+
         acc = clf._evaluate(Target_X, Target_Y)
         
         if(use_dp):
@@ -528,10 +563,9 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
         # clf.cuda()
         
         # set the size of the Target_X
-        rand_idx = np.random.permutation(Target_X.shape[0])
-        shuffled_target_X = Target_X[rand_idx, :]
+   
         
-        clf.fit(X, Y, X_adapt=shuffled_target_X[:ARGS.tgt_size], X_valid=X_valid, Y_valid=Y_valid)
+        clf.fit(X, Y, X_adapt=shuffled_target_X, X_valid=X_valid, Y_valid=Y_valid)
         
         Target_X = torch.FloatTensor(Target_X)
         acc = clf.validate(Target_X, Target_Y)
@@ -569,8 +603,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     # return acc
 
 if __name__ == '__main__':
-    # data_embedding()
-    # import sys; sys.exit()
+
 
 
     
@@ -603,6 +636,7 @@ if __name__ == '__main__':
             Target_Acc_sum += TA
             protected_avg_acc += protected_acc
             Target_Acc_list.append([key, TA, protected_acc])
+            print('INFER {} ACC: {:.4f} Protected Acc.: {:.4f}'.format(key,TA, protected_acc))
 
         print('Keyword Attacker {} on {} Embeddings'.format(CLS, ARCH))
         for KT in Target_Acc_list:
@@ -646,6 +680,9 @@ if __name__ == '__main__':
             #     print('INFER {} ACC: {:.4f} Protected Acc.: {:.4f} Util: {:.4f} Protected Util: {:.4f}'.format(KT[0], KT[1], KT[2], KT[3], KT[4]))
             RESULTS.append([(param, Target_Acc_list)])
         print("ARCH: {} \n RESULTS: {}".format(ARCH, RESULTS))
+    elif(FUNCTION == 'prepare'):
+        data_embedding()
+        
         
     
     

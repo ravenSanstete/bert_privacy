@@ -61,7 +61,9 @@ EMB_DIM_TABLE = {
     'xlnet': 768,
     'xlm': 1024,
     'roberta': 768,
-    'ernie': 768
+    'ernie': 768,
+    "gpt-2-medium": 1024,
+    "gpt-2-large": 1280
     }
 INTERVAL_LEN = 1
 
@@ -499,6 +501,7 @@ def train_attacker(target = 0, path = None):
     acc = classifier.evaluate(test_x, test_y)
     topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
     print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(0, running_loss/PRINT_FREQ, acc, K, topk_acc))
+    evaluate("", ARCH, None, given_clf = True, clf = classifier)
     for i in tqdm(range(MAX_ITER)):
         if(not ARCH in offline_archs):
             x, y, _ = get_batch(BATCH_SIZE)
@@ -515,6 +518,7 @@ def train_attacker(target = 0, path = None):
             acc = classifier.evaluate(test_x, test_y)
             topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
             print("Iteration {} Loss {:.4f} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(i+1, running_loss/PRINT_FREQ, acc, K, topk_acc))
+            evaluate("", ARCH, None, given_clf = True, clf = classifier)
             running_loss = 0.0
             # print(raw[:4])
             # print(y[:4])
@@ -543,7 +547,7 @@ def train_random_forest(target = 0):
     return acc
 
 
-def evaluate(path, arch, defense = None):
+def evaluate(path, arch, defense = None, given_clf = False, clf = None):
     pos_embed_dim = EMB_DIM_TABLE[arch]
     local_pos_embedding =  get_positional_embedding(pos_embed_dim, TOTAL_LEN)
     TEST_SIZE = 1000
@@ -555,11 +559,16 @@ def evaluate(path, arch, defense = None):
         emb_dim = EMB_DIM
     # print(emb_dim)
     CLS_NUM = 4
-    classifier = Classifier(emb_dim, 0, CLS_NUM, DEVICE)
-    classifier.load_state_dict(torch.load(path, map_location = DEVICE))
-    print("Loading Model from {} ...".format(path))
-    classifier = classifier.cuda()
-    classifier.eval() # this line is important, to deactivate the effect of the batch normalization
+    if(not given_clf):
+        classifier = Classifier(emb_dim, 0, CLS_NUM, DEVICE)
+        classifier.load_state_dict(torch.load(path, map_location = DEVICE))
+        print("Loading Model from {} ...".format(path))
+        classifier = classifier.cuda()
+        classifier.eval() # this line is important, to deactivate the effect of the batch normalization
+    else:
+        classifier = clf
+        clf.eval()
+    
     average_acc = 0.0
     average_topk_acc =0.0
     avg_util  = 0.0
@@ -573,7 +582,7 @@ def evaluate(path, arch, defense = None):
     genome_clf = GenomeClassifier(EMB_DIM)
     # print(EMB_DIM)
     
-    genome_clf.load_state_dict(torch.load(genome_clf_path, map_location = DEVICE))
+    # genome_clf.load_state_dict(torch.load(genome_clf_path, map_location = DEVICE))
     genome_clf.cuda()
 
     # defense = initialize_defense('rounding', decimals = 1)
@@ -616,7 +625,7 @@ def evaluate(path, arch, defense = None):
             protected_acc_arr.append(protected_acc)
         
         
-        print("Util Acc: {:.4f} Protected Util Acc.: {:.4f} TARGET INDEX {} ACC: {:.4f} TOP-2: {:.4f} Protected: {:.4f} Protected Top-2: {:.4f}".format(util_acc, protected_util_acc, target, acc, topk_acc, protected_acc, protected_topk_acc))
+        # print("Util Acc: {:.4f} Protected Util Acc.: {:.4f} TARGET INDEX {} ACC: {:.4f} TOP-2: {:.4f} Protected: {:.4f} Protected Top-2: {:.4f}".format(util_acc, protected_util_acc, target, acc, topk_acc, protected_acc, protected_topk_acc))
     # print("Average Acc: {:.4f} Average Top-2 Acc.: {:.4f} Avergage Util: {:.4f} Protected: {:.4f} {:.4f} {:.4f}".format(average_acc/TOTAL_LEN, average_topk_acc/TOTAL_LEN, avg_util/TOTAL_LEN, protected_avg_acc/TOTAL_LEN, protected_avg_topk_acc/TOTAL_LEN, protected_avg_util/TOTAL_LEN))
 
     """
@@ -629,14 +638,16 @@ def evaluate(path, arch, defense = None):
     avg_util /= TOTAL_LEN
     protected_avg_util /= TOTAL_LEN
 
-    print(atk_acc_arr)
-    print(avg_util)
-    print(protected_avg_util)
-    print(protected_acc_arr)
-    print(protected_avg_acc)
+    print("{},{}".format(atk_acc_arr, np.array(atk_acc_arr).mean()))
+    # print(avg_util)
+    # print(protected_avg_util)
+    # print(protected_acc_arr)
+    # print(protected_avg_acc)
     # for 
     # print(baseline_acc)
     # print()
+    
+    classifier.train()
     return (protected_acc_arr, [avg_util, protected_avg_util]) # protected_acc_arr
 
     
@@ -684,8 +695,8 @@ if __name__ == '__main__':
     
     
     if(TRAIN):
-        generate_offline_training_data(102400)
-        # acc = train_attacker(0, PATH)
+        # generate_offline_training_data(102400)
+        acc = train_attacker(0, PATH)
     elif(DEFENSE != 'none'):
         # construct_datasets(ARCH)
         defenses = []
