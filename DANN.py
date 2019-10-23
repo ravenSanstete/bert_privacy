@@ -12,6 +12,7 @@ from pytorch_revgrad import RevGrad
 import random
 from tqdm import tqdm
 from scipy.stats import describe
+from sklearn.preprocessing import normalize
 
 
 class DANN(nn.Module):
@@ -40,20 +41,19 @@ class DANN(nn.Module):
         self.learning_rate = learning_rate
         self.verbose = verbose
         self.input_size = input_size
-        self.feature_extractor =  nn.Sequential(Linear(self.input_size, 400),
-                                     nn.BatchNorm1d(400),
-                                        nn.Sigmoid(),
-                                     Linear(400, self.hidden_layer_size),
-                                        nn.Sigmoid(),
-                                     nn.BatchNorm1d(self.hidden_layer_size))
+        self.feature_extractor =  nn.Sequential(Linear(self.input_size, self.hidden_layer_size),
+                                                nn.Sigmoid())
         self.classifier = nn.Linear(self.hidden_layer_size, cls_num)
-        self.domain_classifier = nn.Linear(self.hidden_layer_size, domain_num)
+        self.domain_classifier = nn.Sequential(nn.Linear(self.hidden_layer_size, 20),
+                                               nn.Sigmoid(),
+                                               nn.Linear(20, domain_num))
         self.batch_size = batch_size
         self.rev_grad = RevGrad()
         self.use_cuda = use_cuda
         self.criterion = nn.CrossEntropyLoss(reduction = 'mean')
-        self.d_optimizer = optim.Adam([{"params": self.classifier.parameters()}], lr=0.001)
-        self.optimizer = optim.Adam([{"params": self.feature_extractor.parameters()}, {"params": self.domain_classifier.parameters()}], lr = 0.001)
+        # self.d_optimizer = optim.SGD([{"params": self.classifier.parameters(), 'lr': 1e-3}])
+        # self.optimizer = optim.SGD(self.parameters(), lr = 0.01, momentum = 0.9)
+        self.optimizer = optim.Adam(self.parameters(), lr = 0.001)
         self.print_freq = 100
         self.name = name
         self.cached = cached
@@ -64,7 +64,7 @@ class DANN(nn.Module):
 
     def forward(self, x):
         x = self.feature_extractor(x)
-        x = F.softmax(self.classifier(x), dim = 0)
+        x = self.classifier(x)
         return x
 
     def _hidden_representation(self, x):
@@ -102,7 +102,6 @@ class DANN(nn.Module):
     def L_d(self, x, domain_y):
         x = self.rev_grad(self.feature_extractor(x))
         x = self.domain_classifier(x)
-
         return self.criterion(x, domain_y)
 
     def validate(self, x, y):
@@ -150,14 +149,18 @@ class DANN(nn.Module):
             if(self.use_cuda):
                 self.cuda()
             return correct
-        
+
+        # X = X - np.mean(X, axis = 0)
+        # X_adapt = X_adapt - np.mean(X_adapt, axis = 0)
+        # print(X)
+        # print(X_adapt)
         X, X_adapt = torch.FloatTensor(X), torch.FloatTensor(X_adapt)
         if(self.verbose):
             print("Adaptation size: {}".format(len(X_adapt)))
         X_valid = torch.FloatTensor(X_valid)
         Y_cpu = Y.copy()
         Y = torch.LongTensor(Y)
-        domain_labels = torch.LongTensor([0]*X.size(0) + [1]*X_adapt.size(0))
+        # domain_labels = torch.LongTensor([1]*X_adapt.size(0) + [1]*X.size(0))
         domain_ds = data_utils.TensorDataset(X_adapt, )
         clf_ds = data_utils.TensorDataset(X, Y)
         domain_loader = data_utils.DataLoader(domain_ds, batch_size = self.batch_size, shuffle = True, pin_memory = True, num_workers = 4, drop_last = True)
@@ -173,10 +176,20 @@ class DANN(nn.Module):
         running_loss = 0.0
         running_ld = 0.0
         running_ly = 0.0
+        batch_counter = 0
+        num_steps = (X.size(0) // self.batch_size) * self.maxiter
+        
         for i in tqdm(range(self.maxiter)):
             for x, y in clf_loader:
+                p = float(batch_counter) / num_steps
+                l = 2. / (1. + np.exp(-10. * p)) - 1
+                self.rev_grad.set_scale(l)
+                # Adaptation param and learning rate schedule as described in the paper
+
                 self.optimizer.zero_grad()
-                domain_x, = random.choice(domain_loader)
+                # self.d_optimizer.zero_grad()
+                # remove the random choicing of the batch data
+                domain_x, = domain_loader[batch_counter % len(domain_loader)]
                 domain_x = torch.cat([domain_x, x], dim = 0)
                 domain_y = torch.LongTensor([0]*self.batch_size + [1]*self.batch_size)
                 if(self.use_cuda):
@@ -185,9 +198,20 @@ class DANN(nn.Module):
                 l_y = self.L_y(x, y)
                 l_d = self.L_d(domain_x, domain_y)
                 loss = l_y + self.lambda_adapt * l_d
-                loss.backward()
-                self.d_optimizer.step()
+                loss.backward()                
+                # self.d_optimizer.step()
+                
                 self.optimizer.step()
+                lr = 0.01 / (1. + 10 * p)**0.75
+                # for g in self.optimizer.param_groups:
+                #    g['lr'] = lr
+                batch_counter += 1
+                
+
+
+                # update scale
+                # 
+
                 running_loss += loss.item()
                 running_ld += l_d.item()
                 running_ly += l_y.item()
@@ -195,7 +219,7 @@ class DANN(nn.Module):
 
                 if self.verbose:
                     print('Iter {}/{} loss: {:.5f} Ly: {:.5f} Ld: {:5f}'.format(i+1, self.maxiter, running_loss / self.print_freq, running_ly/self.print_freq, running_ld/self.print_freq))
-
+                    print("p: {:.4f} l: {:.4f} lr: {:.4f}".format(p, l, lr))
                 running_loss = 0.0
                 running_ld = 0.0
                 running_ly = 0.0

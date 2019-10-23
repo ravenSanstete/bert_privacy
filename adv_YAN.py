@@ -49,7 +49,7 @@ SVM_KERNEL = 'linear'
 # DANN parameter
 MAXITER = 1000
 BATCH_SIZE = 128
-LAMDA = 1
+LAMDA = 1.0
 
 
 FUNCTION = ARGS.f
@@ -59,7 +59,7 @@ FUNCTION = ARGS.f
 
 # MLP parameter
 
-EPOCH = 50
+EPOCH = 1000
 HIDDEN_DIM = 80
 BATCH_SIZE = 128
 LEARNING_RATE = 0.001
@@ -85,7 +85,16 @@ else: # toggle it to use Yan's pretrained model
     CACHED = True
 
 
-
+DELTA_TABLE = {
+    "bert": 81.82,
+    'gpt' : 73.19,
+    'gpt2': 110.2,
+    'xl': 17.09,
+    'xlnet': 601.5,
+    'xlm': 219.4,
+    'roberta': 4.15,
+    'ernie': 28.20        
+    }
     
     
     
@@ -99,7 +108,12 @@ DEVICE = torch.device('cuda:0')
 
 if(DATASET == 'medical'):
     # LOCAL = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_4/'
-    DS_LOCAL = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_6/'
+    if(not NO_BALANCE):
+        DS_LOCAL = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_5/'
+    else:
+        DS_LOCAL = '/DATACENTER/data/pxd/bert_privacy/data/part_fake_6/'
+        
+
 
     DS_PATH = DS_LOCAL + '{}.{}'
     DS_EMB_PATH = DS_LOCAL + '{}.{}'
@@ -113,9 +127,11 @@ if(DATASET == 'medical'):
     TRAIN_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.txt'
     TRAIN_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/medical.train.x'
     # TRAIN_EMB_PATH = 'data/medical.train.x'
-    
-    # cls_names = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
-    cls_names = ["sack", "paltry", "settle", "lethal", "flagrant"]
+
+    if(not NO_BALANCE):
+        cls_names = ["leg", "hand", "spine", "chest", "ankle", "head", "hip", "arm", "face", "shoulder"]
+    else:
+        cls_names = ["sack", "paltry", "settle", "lethal", "flagrant"]
 
     
     # cls_names = ['Hong Kong','London','Toronto','Paris','Rome']
@@ -183,7 +199,7 @@ EMB_DIM_TABLE = {
     "gpt-2-large": 1280
 }
 
-HIDDEN = EMB_DIM_TABLE[ARCH]
+HIDDEN = 100 # EMB_DIM_TABLE[ARCH]
 
 embedder = Embedder(p)
 embedding = embedder.embedding # export the functional port
@@ -432,18 +448,21 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
 
     ## GET THE TRAINING DATA, NO NEED TO DEFEND
     X, Y = [], []
+    mean_direction = []
     for i in [0, 1]:  # while my training data is from gpt
         f = open(DS_PATH.format(key, i) + '.txt', 'r')
         sents = [x[:-1] for x in f if x[:-1] != '']
         print(DS_EMB_PATH.format(key, i))
         embs = embedding(sents, DS_EMB_PATH.format(key, i), ARCH)
         embs = embs[np.random.choice(len(embs), min(size, len(embs)), replace=False), :]
+        mean_direction.append(np.mean(embs, axis = 0))
         X.append(embs)
         Y.extend([i] * embs.shape[0])
     X = np.concatenate(X, axis=0)
     Y = np.array(Y)
+    trans_D = mean_direction[1] - mean_direction[0]
 
-
+    # print(trans_D)
     # (Target_sents, Target_X) is from target domain.
     # Target_X are sentence embeddings. Target_sents are original sentences.
     f = open(TRAIN_PATH, 'r')
@@ -457,6 +476,8 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
     if(not NO_BALANCE):
         Target_sents, Target_X = balance(key, Target_sents, Target_X)
     else:
+        Target_X = Target_X[rand_idx, :]
+        Target_sents = [Target_sents[i] for i in rand_idx]
         Target_X = Target_X[:1000, :]
         Target_sents = Target_sents[:1000]
     # print(Target_sents[0])
@@ -561,13 +582,15 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
         DANN_CPT_PATHs = DANN_CPT_PATH + "{}_cracker_{}.cpt".format(key, ARCH)
         clf = DANN(input_size=EMB_DIM_TABLE[ARCH], maxiter=MAXITER, verbose=VERBOSE, name=key, batch_size=BATCH_SIZE, lambda_adapt=LAMDA, hidden_layer_size=HIDDEN, cached = DANN_CACHED, cpt_path = DANN_CPT_PATHs)
         # clf.cuda()
+
         
         # set the size of the Target_X
-   
+        trans_D = 0.5 * trans_D
+        concated_Target_X = np.concatenate([Target_X - trans_D, Target_X + trans_D], axis = 0)
         
-        clf.fit(X, Y, X_adapt=shuffled_target_X, X_valid=X_valid, Y_valid=Y_valid)
+        clf.fit(X, Y, X_adapt=concated_Target_X, X_valid=Target_X - trans_D, Y_valid=Target_Y)
         
-        Target_X = torch.FloatTensor(Target_X)
+        Target_X = torch.FloatTensor(Target_X-trans_D)
         acc = clf.validate(Target_X, Target_Y)
         # print(acc)
         if(use_dp):
