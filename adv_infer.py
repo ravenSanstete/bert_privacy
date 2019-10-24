@@ -10,6 +10,7 @@ from torch.nn import GRU, Embedding, Linear
 
 from util import Embedder
 from tqdm import tqdm
+import time 
 
 import argparse
 parser = argparse.ArgumentParser(description='ID Attack')

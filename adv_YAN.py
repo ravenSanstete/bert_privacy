@@ -14,7 +14,7 @@ from tqdm import tqdm
 from DANN import DANN
 import argparse
 from defense import initialize_defense
-
+import time
 
 
 
@@ -66,7 +66,7 @@ LEARNING_RATE = 0.001
 PRINT_FREQ = 100
 K = 5
 DATASET = ARGS.dataset
-NO_BALANCE = True
+NO_BALANCE = False
 
 # CPT_PATH = '/DATACENTER/data/yyf/Py/bert_privacy/data/part_fake_5/MLP_CPT/'
 # CPT_PATH = 'data/part_fake_5/MLP_CPT/'
@@ -136,8 +136,8 @@ if(DATASET == 'medical'):
     
     # cls_names = ['Hong Kong','London','Toronto','Paris','Rome']
 else:
-    # cls_names = ['Hong Kong','London','Toronto','Paris','Rome','Sydney','Dubai','Bangkok','Singapore','Frankfurt']
-    cls_names = ["sack", "paltry", "settle", "lethal", "flagrant"]
+    cls_names = ['Hong Kong','London','Toronto','Paris','Rome','Sydney','Dubai','Bangkok','Singapore','Frankfurt']
+    # cls_names = ["sack", "paltry", "settle", "lethal", "flagrant"]
     
     TARGET_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid.txt'
     TARGET_EMB_PATH = '/DATACENTER/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/valid'
@@ -352,7 +352,7 @@ class NonLinearClassifier(nn.Module):
                 running_loss += loss.item()
                 counter += 1
 
-            if ((epoch+1) % 10 == 0):
+            if ((epoch+1) % 1000 == 0):
                 print('Epoch %d loss: %.5f Count: %d' % (epoch + 1, running_loss, counter))
                 running_loss = 0.0
                 counter = 0
@@ -555,7 +555,7 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
             
     elif CLS == 'SVM':
         # for discussion
-        REVERSE = True
+        REVERSE = False
         # shadow 
         clf = SVC(kernel='{}'.format(SVM_KERNEL), gamma='scale', verbose=VERBOSE, max_iter = 5000)
         # print(X_valid)
@@ -564,7 +564,10 @@ def ATTACK(key, use_dp=False, defense=None, verbose=VERBOSE, size = 2000):
         if(REVERSE):
             clf.fit(Target_X, Target_Y)
         else:
+            start = time.time()
             clf.fit(X_valid, Y_valid)
+            end = time.time()
+            print("Time: {}".format(end - start))
         # if(defense):
         # the common approach
         if(REVERSE):

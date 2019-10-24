@@ -83,8 +83,8 @@ embedding = embedder.embedding # export the functional port
 
 COUNTER = 0
 
-# offline_archs = ['transformer-xl']
-offline_archs = []
+offline_archs = ['transformer-xl']
+# offline_archs = []
 
 if(ARCH in offline_archs):
     # construct the transformer
@@ -94,7 +94,7 @@ if(ARCH in offline_archs):
     # to do some truncating
     batch_num = z.shape[0] // batch_size
     print(batch_num)
-    ARG.save_p += ".{:.1f}".format(TRUNCATE_RATIO)
+    ARGS.save_p += ".{:.1f}".format(TRUNCATE_RATIO)
     current_batch_num = int(batch_num * TRUNCATE_RATIO)
     print("Batch Size {}/{}".format(current_batch_num, batch_num))
     #
@@ -465,7 +465,7 @@ def train_attacker(target = 0, path = None):
     print("INFER GENE SUBSEQ [{}, {}) CLS NUMBER {}".format(TARGET, TARGET + INTERVAL_LEN, CLS_NUM))
     MAX_ITER = 100000
     CACHED = False
-    PRINT_FREQ = 100
+    PRINT_FREQ = 10000
 
     TEST_SIZE = 1000
     HIDDEN_DIM = 200

@@ -5,11 +5,11 @@ import json
 import time
 from io import BytesIO
 import pickle
-
+import numpy as np
 
 
 class LMClient(object):
-    def __init__(self, name = None, port = 5432):
+    def __init__(self, name = None, port = 5431):
         self.name = name
         context = zmq.Context()
         #  Socket to talk to server
@@ -33,11 +33,18 @@ if __name__ == '__main__':
     PATH = "/home/mlsnrs/data/data/yyf/Py/bert_privacy_Yan/data/Airline/Target/test.txt"
     test_sents = list(open(PATH, 'r'))
     # test_sents = list(open('data/part_fake_5/ankle.0.txt', 'r'))
-    test_sents = test_sents[:10]
+    test_sents = test_sents[:128]
 
     client = LMClient()
+    avg_time = []
     for request in range(10):
+        start = time.time()
         embs = client.encode(test_sents)
         # embs = client.encode(['[CLS]'])
+        end = time.time()
+        print("time: {}".format(end - start))
+        avg_time.append(end - start)
         print(embs.shape)
+    print(np.mean(avg_time))
+    
 
