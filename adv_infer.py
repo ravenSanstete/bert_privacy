@@ -247,6 +247,8 @@ class Classifier(nn.Module):
         return np.mean(acc)
 
     
+
+    
     
 def main():
     print("INFER {}".format(INFER_PART))
@@ -321,16 +323,55 @@ if __name__ == '__main__':
         main()
     elif(ARGS.f == 'gen'):
         generate_offline_training_set(pooling = POOLING)
+    elif(ARGS.f == 'ensemble'):
+        TEST_SIZE = 1000
+        K = 2
+        parts = ["year", "month", "date"]
+        PATH = "citizen/{}_{}_cracker.cpt"
+        crackers = []
+        DEVICE = torch.device('cuda:0')
+        TEST_SIZE = 1000
+        test_x, year, month, date, _ = get_batch_offline(TEST_SIZE)
+        test_x = torch.FloatTensor(test_x)
+        print(month)
+        preds = []
+        test_y = list(zip(year, month, date))
+        for p in parts:
+            path = PATH.format(ARCH, p)
+            print("Loading {} Cracker...".format(path))
+            classifier = Classifier(EMB_DIM, HIDDEN_DIM_TABLE[p], CLS_NUM_TABLE[p], DEVICE)
+            classifier.to(DEVICE)
+            test_x = test_x.to(DEVICE)
+            top_k_pred = classifier.predict_topk(test_x, k = K)
+            preds.append(top_k_pred)
+
+        count = 0
+        for r in range(len(test_x)):
+            preds_y = []
+            for i in range(K):
+                for j in range(K):
+                    for k in range(K):
+                        preds_y.append((preds[0][r, i], preds[1][r, j], preds[2][r, k]))
+            # print("Top-8: {} Groud-Truth: {}".format(preds_y, test_y[r]))
+            if(test_y[r] in preds_y):
+                count += 1
+        print("Top-5: {:.4f}".format(count / len(test_x)))
+        
+        
+            
+            
+        
     else:
         parts = ["year", "month", "date"]
-        PATH = "{}_{}_cracker.cpt"
+        PATH = "citizen/{}_{}_cracker.cpt"
         crackers = []
         DEVICE = torch.device('cuda:0')
         TEST_SIZE = 1000
         # DEMO_SIZE = 4
         
-        K = 5
-        for p in parts:
+        K = [2, 2, 1]
+        top_acc = []
+        for i, p in enumerate(parts):
             path = PATH.format(ARCH, p)
             print("Loading {} Cracker...".format(path))
             classifier = Classifier(EMB_DIM, HIDDEN_DIM_TABLE[p], CLS_NUM_TABLE[p], DEVICE)
@@ -341,9 +382,10 @@ if __name__ == '__main__':
             # print(test_y)
             test_x = test_x.to(DEVICE)
             acc = classifier.evaluate(test_x, test_y)
-            topk_acc = classifier.evaluate_topk(test_x, test_y, k = K)
+            topk_acc = classifier.evaluate_topk(test_x, test_y, k = K[i])
+            top_acc.append(topk_acc)
             print("Arch: {} Part: {} Acc.: {:.4f} Top-{} Acc.: {:.4f}".format(ARCH, p, acc, K, topk_acc))
-            
+        print(top_acc[0] * top_acc[1] * top_acc[2])
             
             # crackers.append(classifier)
         

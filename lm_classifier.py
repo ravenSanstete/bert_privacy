@@ -44,7 +44,7 @@ EMB_DIM_TABLE = {
 }
 
 TEST_ARCHS = ["gpt", "gpt2", "xlnet", "roberta", "ernie"]
-
+LEGEND_NAMES = ["GPT", "GPT-2", "XLNET", "RoBERTa", "ERNIE"]
 
 embedder = Embedder(5005)
 embedding = embedder.embedding # export the functional port
@@ -94,7 +94,7 @@ def plot_cluster(axs, x, name):
     sample_per_arch = len(x) // len(TEST_ARCHS)
     print(sample_per_arch)
     for i in range(len(TEST_ARCHS)):
-        axs.scatter(x[i*sample_per_arch:(i+1)*sample_per_arch, 0], x[i*sample_per_arch:(i+1)*sample_per_arch, 1], c=colors[i], label=TEST_ARCHS[i])
+        axs.scatter(x[i*sample_per_arch:(i+1)*sample_per_arch, 0], x[i*sample_per_arch:(i+1)*sample_per_arch, 1], c=colors[i], label=LEGEND_NAMES[i])
     axs.legend()
     axs.set_xlabel(name)
     # plt.savefig(name, dpi = 108)
@@ -229,7 +229,7 @@ class Classifier(nn.Module):
 
 if __name__ == '__main__':
     fig, axs = plt.subplots(figsize = (16, 6), ncols = 2, nrows =  1)
-    plt.subplots_adjust(top=0.95, bottom=0.05, left=0.05, right=0.95)
+    plt.subplots_adjust(top=0.9, bottom=0.1, left=0.1, right=0.9)
     ext_x, ext_y = get_additional_embeddings()
     pca = PCA(n_components = 2, svd_solver = 'full')
     ext_x_low = pca.fit_transform(ext_x)
