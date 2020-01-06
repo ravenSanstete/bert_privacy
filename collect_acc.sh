@@ -19,7 +19,6 @@ arr=("bert" "gpt" "gpt-2" "xlm" "xlnet" "transformer-xl" "roberta" "ernie")
 
 echo "Evaluate GENOME Case"
 for model in "${arr[@]}"
-do
     # access each element  
     # as $i
     CUDA_VISIBLE_DEVICES=$cuda_idx python adv_genome_position.py -c --save_p default -a $model -t
@@ -39,7 +38,7 @@ if [ "$scenario" == "medical" ]; then
     # access each element  
 	# as $i
 	if [ "$cached" == "y" ]; then
-	    CUDA_VISIBLE_DEVICES=$cuda_idx python adv_YAN.py --clf $atk -a $model -t
+	    CUDA_VISIBLE_DEVICES=$cuda_idx python adv_YAN.py --clf $atk -a $model -t -v
 	else
 	    CUDA_VISIBLE_DEVICES=$cuda_idx python adv_YAN.py --clf $atk -a $model
 	fi
